@@ -239,12 +239,13 @@ body{background-image:radial-gradient(color-mix(in srgb,var(--primary) 32%,trans
 .hero,.invoice,.login-card{position:relative}
 .hero::before,.invoice::before{content:"";position:absolute;top:-8px;left:26px;width:92px;height:22px;z-index:3;transform:rotate(-3deg);opacity:.9;
   background:repeating-linear-gradient(45deg,color-mix(in srgb,var(--primary) 55%,#fff) 0 8px,color-mix(in srgb,var(--primary) 30%,#fff) 8px 16px);box-shadow:0 1px 0 rgba(0,0,0,.12)}
-.invoice::before{left:auto;right:150px;top:6px;transform:rotate(2.5deg)}
+.invoice::before{left:50%;right:auto;top:0;width:130px;height:28px;transform:translateX(-50%) rotate(-1deg);opacity:.95;clip-path:polygon(0 0,100% 0,97% 25%,100% 50%,97% 75%,100% 100%,0 100%,3% 75%,0 50%,3% 25%);
+  background:repeating-linear-gradient(45deg,rgba(255,255,255,.8) 0 8px,rgba(255,255,255,.5) 8px 16px);box-shadow:none}
 .ocard{position:relative}
 .ocard::before{content:"";position:absolute;top:-7px;left:50%;width:46px;height:13px;transform:translateX(-50%) rotate(-3deg);opacity:.85;
   background:repeating-linear-gradient(90deg,color-mix(in srgb,var(--primary) 45%,#fff) 0 6px,color-mix(in srgb,var(--primary) 22%,#fff) 6px 12px)}
 .inv-body{position:relative;padding-left:40px}
-.inv-body::before{content:"";position:absolute;left:11px;top:0;bottom:0;width:16px;background:radial-gradient(circle,#fff 0 4.5px,var(--ink) 5px 6px,transparent 6.5px) 0 4px/16px 28px repeat-y;opacity:.9}
+.inv-body::before{content:"";position:absolute;left:11px;top:0;bottom:0;width:16px;background:radial-gradient(circle,#fff 0 4.5px,var(--ink) 5px 6px,transparent 6.5px) 0 4px/16px 28px no-repeat space;opacity:.9}
 .struk .inv-body::before{display:none}
 .cb{display:inline-flex;align-items:center;gap:4px;padding:1px 8px 1px 2px;border-radius:999px;font-size:10.5px;font-weight:600;border:1.5px solid var(--ink,#231f1e);background:#fff;color:#231f1e;white-space:nowrap;vertical-align:middle;line-height:1.5}
 .cb i{font-style:normal;font-size:9px;font-weight:700;border-radius:999px;padding:0 5px;background:#e5e7eb;color:#231f1e}
@@ -264,6 +265,17 @@ body{background-image:radial-gradient(color-mix(in srgb,var(--primary) 32%,trans
 .invoice .tot .subdp{font-weight:700;color:var(--primary-dark);padding:2px 0}
 .cc{display:inline-block;min-width:22px;padding:0 4px;margin-right:4px;border:1.5px solid #231f1e;border-radius:6px;font-size:10.5px;text-align:center;background:color-mix(in srgb,var(--primary) 18%,#fff)}
 .pc{font-weight:700;letter-spacing:.02em;margin-right:2px}
+.settle .tot{margin-left:auto}
+.settle .payopts{margin-top:14px;padding:6px 0 4px}
+.settle .po-grid{grid-template-columns:1fr 1fr;gap:16px;align-items:stretch}
+.settle .po{display:flex;flex-direction:column;justify-content:center;transform:none!important;padding:10px 8px}
+.inv-foot{border-top:2px dashed color-mix(in srgb,var(--ink) 38%,transparent);margin:16px 12px 0;padding:14px 8px 8px}
+.inv-foot::before{content:"\2702";position:absolute;left:10px;top:-13px;background:var(--card);padding:0 4px;font-size:15px;line-height:1;color:var(--ink)}
+.inv-code{display:flex;align-items:center;justify-content:center;gap:12px;padding:2px 18px 14px;font-size:11px;letter-spacing:.2em;color:var(--muted)}
+.inv-code .ibar{width:120px;height:26px;display:block}
+.struk .inv-code,.struk .inv-foot::before{display:none}
+@media(max-width:560px){.invoice:not(.wide) .settle .po-grid{grid-template-columns:1fr 1fr;gap:10px}.invoice:not(.wide) .settle .po b{font-size:15px}.invoice:not(.wide) .inv-code .ibar{width:70px}}
+@media print{.invoice tr,.settle,.payopts,.po,.inv-foot,.inv-code{break-inside:avoid;page-break-inside:avoid}.invoice th{break-after:avoid}}
 .stamp.wait{color:var(--primary-dark);font-size:12px}
 @media(max-width:560px){
   .invoice:not(.wide) .inv-head{padding:10px 12px;gap:8px}.invoice:not(.wide) .inv-logo{width:46px;height:46px}.invoice:not(.wide) .inv-char{width:58px;height:58px;margin:0}
@@ -744,6 +756,11 @@ function openPOS() {
 }
 
 /* ============ invoice ============ */
+function invBarcode(str) {
+  let x = 0, bars = "";
+  [...String(str)].flatMap(c => { const n = c.charCodeAt(0); return [1 + n % 3, 1 + (n >> 2) % 2, 1 + (n >> 1) % 3]; }).forEach((w, i) => { if (i % 2 === 0) bars += `<rect x="${x}" y="0" width="${w}" height="28"/>`; x += w; });
+  return `<svg class="ibar" viewBox="0 0 ${x} 28" preserveAspectRatio="none" fill="#231f1e" aria-hidden="true">${bars}</svg>`;
+}
 function invoiceHTML(o, kind = "a4") {
   const st = o.settings || S.settings; const cur = st.currency || "Rp"; const f = n => `${cur} ${Math.round(n).toLocaleString("id-ID")}`;
   const brand = String(st.store_name || "Herstoodio").toLowerCase();
@@ -783,12 +800,12 @@ function invoiceHTML(o, kind = "a4") {
     <div class="inv-body">
       <div class="inv-meta"><div><span>Untuk:</span> <b>${esc(o.customer_name)}</b></div><div><span>Tanggal:</span> ${esc(o.created_at.slice(0, 16))}</div><div><span>Jenis:</span> ${esc(o.type)}</div><div><span>Kasir:</span> ${esc(o.cashier)}</div></div>
       <table><tr><th>Negara · Kode · Deskripsi</th><th class="num">Qty</th><th class="num">Harga</th>${showDp ? '<th class="num dpc">DP</th>' : ""}<th class="num">Subtotal</th></tr>
-      ${o.items.map(i => `<tr><td>${item(i)}</td><td class="num">${i.qty}</td><td class="num">${f(i.price)}</td>${showDp ? `<td class="num dpc">${i.dp ? f(i.dp * i.qty) : "-"}</td>` : ""}<td class="num">${f(i.price * i.qty)}</td></tr>`).join("")}</table>
-      <div class="tot">${totals}</div>
-      ${options}
+      ${o.items.map(i => `<tr><td>${item(i)}</td><td class="num">${i.qty}</td><td class="num">${f(i.price)}</td>${showDp ? `<td class="num dpc">${i.dp ? f(i.dp) : "-"}</td>` : ""}<td class="num">${f(i.price * i.qty)}</td></tr>`).join("")}</table>
+      <div class="settle"><div class="tot">${totals}</div>${options}</div>
       ${o.note ? `<div style="margin-top:8px"><span class="muted">Catatan:</span> ${esc(o.note)}</div>` : ""}
     </div>
     <div class="inv-foot">${stamp}<div class="inv-thanks">${esc(st.invoice_footer)}<small>✦ ♡ ✿ [ ${esc(brand)} ] ✿ ♡ ✦</small></div></div>
+    <div class="inv-code">${invBarcode(o.number)}<span>${esc(o.number)}</span>${invBarcode(o.number.split("").reverse().join(""))}</div>
     <div class="inv-edge"></div></div>`;
 }
 function waText(o) {
