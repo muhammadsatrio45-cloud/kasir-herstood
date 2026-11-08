@@ -825,7 +825,7 @@ const openInvoice = guard(async (id) => {
         ${payMethod === "Tunai" ? `<div class="field" style="margin:0"><label>Uang diterima (opsional)</label><input class="input" type="number" id="iCash"></div>` : "<div></div>"}</div>
         <div class="row" style="margin-top:10px">${canDp || o.paid_amount > 0 ? `<button class="btn" id="iPartial">${canDp ? "✓ Tandai DP diterima" : "✓ Catat cicilan"}</button>` : ""}<button class="btn ok" id="iLunas">✓ Tandai LUNAS${o.paid_amount > 0 || canDp ? ` (${fmt(remaining)})` : ""}</button></div></div>` : ""}
       <div class="row">
-        <button class="btn" id="iPrint">Cetak Struk 80mm</button><button class="btn sec" id="iPrintA">Cetak Invoice A5/A4</button><button class="btn sec" id="iWa">Salin teks WhatsApp</button>
+        <button class="btn" id="iPrint">Cetak Struk 80mm</button><button class="btn sec" id="iPrintA">Cetak Invoice A5/A4</button><button class="btn sec" id="iPng">Unduh PNG</button><button class="btn sec" id="iWa">Salin teks WhatsApp</button>
         ${o.status !== "batal" && nextI >= 0 && nextI < 3 ? `<button class="btn ok" id="iNext">Pindah ke ${COLS[nextI + 1][1]}</button>` : ""}
         ${o.status !== "batal" && o.status !== "selesai" ? `<button class="btn sec" id="iCancel">Batalkan</button>` : ""}
         ${isAdmin() ? `<button class="btn danger sm" id="iDel">Hapus</button>` : ""}
@@ -840,6 +840,19 @@ const openInvoice = guard(async (id) => {
     $("#iCancel", m)?.addEventListener("click", () => { if (confirm("Batalkan order ini?")) upd({ status: "batal" }); });
     $("#iDel", m)?.addEventListener("click", guard(async () => { if (!confirm("Hapus permanen invoice ini?")) return; await api("DELETE", "/api/orders/" + id); closeModal(); if (S.view === "order") loadOrders(); refreshSummary(); }));
     $("#iPrint", m).onclick = () => printInvoice(o, "struk"); $("#iPrintA", m).onclick = () => printInvoice(o, "a4");
+    $("#iPng", m).onclick = guard(async () => {
+      const btn = $("#iPng", m); btn.disabled = true; btn.textContent = "Membuat gambar…";
+      try {
+        if (!window.modernScreenshot) await new Promise((ok, no) => { const sc = document.createElement("script"); sc.src = "/modern-screenshot.js"; sc.onload = ok; sc.onerror = () => no(new Error("Gagal memuat pembuat gambar")); document.head.appendChild(sc); });
+        if (document.fonts && document.fonts.ready) await document.fonts.ready;
+        const url = await modernScreenshot.domToPng($(".invoice", m), { scale: 2, backgroundColor: "#ffffff" });
+        const blob = await (await fetch(url)).blob(), name = `invoice-${o.number}.png`;
+        const file = new File([blob], name, { type: "image/png" });
+        if (navigator.canShare && navigator.canShare({ files: [file] }) && /Android|iPhone|iPad/i.test(navigator.userAgent)) { try { await navigator.share({ files: [file], title: name }); return; } catch (e) { if (e.name === "AbortError") return; } }
+        const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+        toast("Gambar invoice tersimpan");
+      } finally { btn.disabled = false; btn.textContent = "Unduh PNG"; }
+    });
     $("#iWa", m).onclick = () => copyText(waText(o)).then(() => toast("Teks invoice tersalin, tinggal tempel di WhatsApp"));
   };
   draw();
