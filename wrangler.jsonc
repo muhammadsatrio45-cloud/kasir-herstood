@@ -8,6 +8,6 @@
     "run_worker_first": ["/api/*"]
   },
   "d1_databases": [
-    { "binding": "DB", "database_name": "herstoodio-db" }
+    { "binding": "DB", "database_name": "herstoodio-db", "database_id": "14ee454b-7aad-4a9c-979f-da6d82accecd" }
   ]
 }
