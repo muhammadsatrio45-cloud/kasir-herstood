@@ -148,6 +148,8 @@ h2:before{content:"♡ ";color:var(--primary)}
 .pitem:hover{background:var(--primary-soft)}
 .pitem b{display:block;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pitem span{color:var(--primary-dark);font-weight:700;font-size:13px}
+.pitem .pn{display:block;font-style:normal;font-weight:500;font-size:12px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cl-name{font-weight:500}
 .pitem small{display:block;color:var(--muted);font-size:11px;margin-top:2px}
 .cart{border:2px solid var(--ink);border-radius:18px;padding:14px;display:flex;flex-direction:column;gap:10px;max-height:78vh;overflow:auto;background:color-mix(in srgb,var(--primary) 6%,var(--card))}
 .cline{background:var(--card);border:2px solid var(--ink);border-radius:14px;padding:9px 10px}
@@ -618,21 +620,22 @@ function renderBoard() {
 }
 
 /* ============ POS (order baru) ============ */
-function openPOS() {
+function openPOS(edit) {
   const methods = S.settings.payment_methods || ["Tunai"];
   const taxPct = +S.settings.tax_percent || 0;
   const cart = []; const pay = { mode: null, method: methods[0], amount: null, cash: "" };
-  const m = openModal(`<div class="row"><img class="mini-av mascot-wrap" src="/img/herstood-face.jpg" alt=""><h3 style="margin:0">Order Baru ♡</h3><span class="spacer"></span><button class="btn sec sm" id="pClose">Tutup</button></div>
+  const m = openModal(`<div class="row"><img class="mini-av mascot-wrap" src="/img/herstood-face.jpg" alt=""><h3 style="margin:0">${edit ? "Edit Invoice " + esc(edit.number) : "Order Baru ♡"}</h3><span class="spacer"></span><button class="btn sec sm" id="pClose">Tutup</button></div>
   <div class="pos" style="margin-top:12px">
     <div>
       <div class="card">
         <h2>Tambah produk</h2>
-        <div class="field"><label>Nama produk (ketik sendiri atau pilih dari master)</label>
+        <div class="two"><div class="field"><label>Negara asal barang</label><select class="input" id="aCountry">${countryOptions()}</select></div>
+        <div class="field"><label>Kode produk</label><input class="input" id="aCode" list="codeList" autocomplete="off" placeholder="mis. JP-001">
+          <datalist id="codeList">${S.products.filter(p => p.code).map(p => `<option value="${esc(p.code)}">${esc(p.name)}</option>`).join("")}</datalist></div></div>
+        <div class="field"><label>Deskripsi produk (ketik sendiri atau pilih dari master)</label>
           <input class="input" id="aName" list="masterList" autocomplete="off" placeholder="mis. Sticker Sanrio Set, Jurnal A5 Polos">
           <datalist id="masterList">${S.products.map(p => `<option value="${esc(p.name)}">`).join("")}</datalist>
           <div class="hint" id="aHint"></div></div>
-        <div class="two"><div class="field"><label>Negara asal barang</label><select class="input" id="aCountry">${countryOptions()}</select></div>
-        <div class="field"><label>Kode produk</label><input class="input" id="aCode" autocomplete="off" placeholder="mis. JP-001"></div></div>
         <div class="four">
           <div class="field"><label>Harga</label><input class="input" type="number" min="0" id="aPrice" placeholder="0"></div>
           <div class="field"><label>DP per item</label><input class="input" type="number" min="0" id="aDp" placeholder="opsional"></div>
@@ -655,16 +658,17 @@ function openPOS() {
       <div class="field" style="margin:0"><label>Catatan</label><input class="input" id="pNote"></div></div>
       <div id="pTot"></div>
       <div id="pPay"></div>
-      <button class="btn ok" id="pSave" disabled>Simpan Order</button>
+      <button class="btn ok" id="pSave" disabled>${edit ? "Simpan Perubahan" : "Simpan Order"}</button>
     </div></div>`, "wide");
   $("#pClose", m).onclick = closeModal;
   const masterBy = n => S.products.find(p => p.name.toLowerCase() === n.trim().toLowerCase());
+  const masterByCode = c => c.trim() && S.products.find(p => (p.code || "").toLowerCase() === c.trim().toLowerCase());
 
   /* produk master */
   function renderMaster() {
     const q = $("#pQ", m).value.toLowerCase();
     const list = S.products.filter(p => (p.name + " " + (p.code || "")).toLowerCase().includes(q));
-    $("#pMaster", m).innerHTML = list.map(p => `<button class="pitem" data-p="${p.id}"><b>${esc(p.name)}</b>${p.code ? `<small>${esc(p.code)}</small>` : ""}<span>${fmt(p.price)}</span>${p.dp ? `<small>DP ${fmt(p.dp)}</small>` : ""}${p.country ? cBadge(p.country) : ""}</button>`).join("")
+    $("#pMaster", m).innerHTML = list.map(p => `<button class="pitem" data-p="${p.id}">${p.code ? `<b>${esc(p.code)}</b>` : ""}<em class="pn">${esc(p.name)}</em><span>${fmt(p.price)}</span>${p.dp ? `<small>DP ${fmt(p.dp)}</small>` : ""}${p.country ? cBadge(p.country) : ""}</button>`).join("")
       || `<div style="grid-column:1/-1">${emptyBox(S.products.length ? "Produk tidak ditemukan." : "Master produk masih kosong. Ketik produk pertamamu di atas, nanti otomatis tersimpan di sini!")}</div>`;
     $$(".pitem", m).forEach(b => b.onclick = () => {
       const p = S.products.find(x => x.id === +b.dataset.p);
@@ -674,9 +678,16 @@ function openPOS() {
     });
   }
   $("#pQ", m).oninput = renderMaster;
+  const fillFrom = (p, how) => {
+    $("#aPrice", m).value = p.price; $("#aDp", m).value = p.dp || ""; $("#aCost", m).value = p.cost || "";
+    if (p.country) $("#aCountry", m).value = p.country;
+    if (how === "code") $("#aName", m).value = p.name; else $("#aCode", m).value = p.code || "";
+    $("#aHint", m).textContent = "✓ Produk master: harga & DP terakhir terisi otomatis (boleh diubah).";
+  };
+  $("#aCode", m).oninput = e => { const p = masterByCode(e.target.value); if (p) fillFrom(p, "code"); };
   $("#aName", m).oninput = e => {
     const p = masterBy(e.target.value), h = $("#aHint", m);
-    if (p) { $("#aPrice", m).value = p.price; $("#aDp", m).value = p.dp || ""; $("#aCost", m).value = p.cost || ""; if (p.country) $("#aCountry", m).value = p.country; $("#aCode", m).value = p.code || ""; h.textContent = "✓ Produk master: harga & DP terakhir terisi otomatis (boleh diubah)."; }
+    if (p) fillFrom(p, "name");
     else h.textContent = e.target.value.trim() ? "✦ Produk baru, otomatis masuk master setelah order disimpan." : "";
   };
   const addManual = () => {
@@ -687,16 +698,16 @@ function openPOS() {
     const ex = cart.find(l => l.name.toLowerCase() === name.toLowerCase() && l.price === price && l.dp === dp && (l.country || "") === country && (l.code || "") === code);
     if (ex) ex.qty += qty; else cart.push({ name, price, dp, cost, qty, country, code });
     ["aName", "aPrice", "aDp", "aCost", "aCode"].forEach(id => $("#" + id, m).value = ""); $("#aQty", m).value = 1; $("#aHint", m).textContent = "";
-    renderLines(); renderTotals(); $("#aName", m).focus();
+    renderLines(); renderTotals(); $("#aCode", m).focus();
   };
   $("#aAdd", m).onclick = addManual;
-  $$("#aName,#aPrice,#aDp,#aQty,#aCost", m).forEach(el => el.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); addManual(); } }));
+  $$("#aCode,#aName,#aPrice,#aDp,#aQty,#aCost", m).forEach(el => el.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); addManual(); } }));
 
   /* keranjang */
   function renderLines() {
     $("#cCount", m).textContent = cart.length;
     $("#pLines", m).innerHTML = cart.length ? cart.map((l, i) => `<div class="cline" data-i="${i}">
-      <div class="cl-top"><b>${l.code ? `<span class="muted">${esc(l.code)}</span> ` : ""}${esc(l.name)} ${l.country ? cBadge(l.country) : ""}</b><button class="x" data-rm="${i}" title="Hapus">×</button></div>
+      <div class="cl-top"><span>${l.country ? cBadge(l.country) + " " : ""}${l.code ? `<b>${esc(l.code)}</b> ` : ""}<span class="cl-name">${esc(l.name)}</span></span><button class="x" data-rm="${i}" title="Hapus">×</button></div>
       <div class="cl-grid"><label>Harga<input type="number" min="0" data-f="price" value="${l.price}"></label><label>DP / item<input type="number" min="0" data-f="dp" value="${l.dp || ""}" placeholder="0"></label><label>Qty<input type="number" min="1" data-f="qty" value="${l.qty}"></label></div>
       <div class="muted sm" data-sum>${fmt(l.price * l.qty)}${l.dp ? ` · DP ${fmt(l.dp * l.qty)}` : ""}</div></div>`).join("")
       : emptyBox("Keranjang masih kosong");
@@ -729,6 +740,7 @@ function openPOS() {
     renderPay(t);
   }
   function renderPay(t = calc()) {
+    if (edit) { $("#pPay", m).innerHTML = `<div class="hint">Pembayaran yang sudah tercatat tidak berubah. Kalau total berubah, sisa tagihan ikut menyesuaikan.</div>`; return; }
     const md = curMode(t), amt = curAmount(t);
     const modes = [["nanti", "Belum bayar · kirim invoice dulu"], ["dp", "Sudah terima DP"], ["lunas", "Sudah lunas"]];
     $("#pPay", m).innerHTML = `<div class="muted sm" style="margin-bottom:4px">Status pembayaran saat ini</div><div class="chips" style="margin-bottom:8px">${modes.map(([k, l]) => `<span class="chip ${k === md ? "on" : ""}" data-md="${k}">${l}</span>`).join("")}</div>
@@ -749,6 +761,16 @@ function openPOS() {
   }
   $("#pDisc", m).oninput = renderTotals;
   $("#pSave", m).onclick = guard(async () => {
+    if (edit) {
+      if (!cart.length) return toast("Keranjang masih kosong", true);
+      const o = await api("PUT", "/api/orders/" + edit.id, {
+        items: cart.map(l => ({ name: l.name, price: l.price, dp: Math.min(l.dp, l.price), cost: l.cost, qty: l.qty, country: l.country || "", code: l.code || "" })),
+        customer_id: $("#pCust", m).value || null, customer_name: $("#pName", m).value, type: $("#pType", m).value,
+        discount: +$("#pDisc", m).value || 0, note: $("#pNote", m).value,
+      });
+      toast(`Invoice ${o.number} diperbarui`); await refreshProducts(); closeModal();
+      if (S.view === "order") await loadOrders(); refreshSummary(); return openInvoice(o.id);
+    }
     const t = calc(), md = curMode(t), amt = curAmount(t);
     if (!cart.length) return toast("Keranjang masih kosong", true);
     if (md === "dp" && amt <= 0) return toast("Isi nominal DP, atau pilih Belum bayar", true);
@@ -762,7 +784,14 @@ function openPOS() {
     toast(`Order ${o.number} tersimpan`); await refreshProducts(); closeModal();
     if (S.view === "order") await loadOrders(); refreshSummary(); openInvoice(o.id);
   });
-  renderMaster(); renderLines(); renderTotals(); $("#aName", m).focus();
+  if (edit) {
+    edit.items.forEach(i => cart.push({ name: i.name, price: i.price, dp: i.dp || 0, cost: i.cost || 0, qty: i.qty, country: i.country || "", code: i.code || "" }));
+    $("#pCust", m).value = edit.customer_id || "";
+    if (!edit.customer_id && edit.customer_name && edit.customer_name !== "Umum") $("#pName", m).value = edit.customer_name;
+    if (![...$("#pType", m).options].some(o => o.value === edit.type)) $("#pType", m).add(new Option(edit.type, edit.type));
+    $("#pType", m).value = edit.type; $("#pDisc", m).value = edit.discount || ""; $("#pNote", m).value = edit.note || "";
+  }
+  renderMaster(); renderLines(); renderTotals(); $("#aCode", m).focus();
 }
 
 /* ============ invoice ============ */
@@ -852,6 +881,7 @@ const openInvoice = guard(async (id) => {
         <div class="row" style="margin-top:10px">${canDp || o.paid_amount > 0 ? `<button class="btn" id="iPartial">${canDp ? "✓ Tandai DP diterima" : "✓ Catat cicilan"}</button>` : ""}<button class="btn ok" id="iLunas">✓ Tandai LUNAS${o.paid_amount > 0 || canDp ? ` (${fmt(remaining)})` : ""}</button></div></div>` : ""}
       <div class="row">
         <button class="btn" id="iPrint">Cetak Struk 80mm</button><button class="btn sec" id="iPrintA">Cetak Invoice A5/A4</button><button class="btn sec" id="iPng">Unduh PNG</button><button class="btn sec" id="iWa">Salin teks WhatsApp</button>
+        ${o.status !== "batal" ? `<button class="btn sec" id="iEdit">✎ Edit invoice</button>` : ""}
         ${o.status !== "batal" && nextI >= 0 && nextI < 3 ? `<button class="btn ok" id="iNext">Pindah ke ${COLS[nextI + 1][1]}</button>` : ""}
         ${o.status !== "batal" && o.status !== "selesai" ? `<button class="btn sec" id="iCancel">Batalkan</button>` : ""}
         ${isAdmin() ? `<button class="btn danger sm" id="iDel">Hapus</button>` : ""}
@@ -862,6 +892,7 @@ const openInvoice = guard(async (id) => {
     const cash = () => +($("#iCash", m)?.value || 0);
     $("#iPartial", m)?.addEventListener("click", () => { const a = +($("#iAmt", m).value || 0); if (a <= 0) return toast("Isi nominal yang diterima", true); upd({ pay_amount: a, method: payMethod, cash_received: cash() }); });
     $("#iLunas", m)?.addEventListener("click", () => upd({ pay_amount: remaining, method: payMethod, cash_received: cash() }));
+    $("#iEdit", m)?.addEventListener("click", () => { closeModal(); openPOS(o); });
     $("#iNext", m)?.addEventListener("click", () => upd({ status: COLS[nextI + 1][0] }));
     $("#iCancel", m)?.addEventListener("click", () => { if (confirm("Batalkan order ini?")) upd({ status: "batal" }); });
     $("#iDel", m)?.addEventListener("click", guard(async () => { if (!confirm("Hapus permanen invoice ini?")) return; await api("DELETE", "/api/orders/" + id); closeModal(); if (S.view === "order") loadOrders(); refreshSummary(); }));
