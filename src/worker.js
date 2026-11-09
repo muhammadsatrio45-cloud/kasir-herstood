@@ -238,12 +238,44 @@ async function hOrderUpdate(c, id) {
   const status = b.status ?? o.status;
   if (!["baru", "dikerjakan", "siap", "selesai", "batal"].includes(status)) throw new ApiError("Status tidak valid");
   const stmts = [];
+  let total = o.total;
+  if (Array.isArray(b.items)) {
+    // EDIT INVOICE: ganti isi item, pelanggan, tipe, diskon
+    if (o.status === "batal") throw new ApiError("Order yang dibatalkan tidak bisa diedit");
+    if (!b.items.length) throw new ApiError("Invoice harus punya minimal 1 produk");
+    const s = await getSettings(env);
+    let subtotal = 0, dpTarget = 0; const lines = [];
+    for (const it of b.items) {
+      const name = String(it.name || "").split(/\s+/).filter(Boolean).join(" ");
+      if (!name) throw new ApiError("Nama produk wajib diisi");
+      const qty = Math.max(1, toInt(it.qty, 1)), price = Math.max(0, toInt(it.price)), dp = Math.max(0, toInt(it.dp)), cost = Math.max(0, toInt(it.cost));
+      if (dp > price) throw new ApiError(`DP untuk ${name} tidak boleh lebih besar dari harganya`);
+      lines.push({ name, price, dp, cost, qty, note: String(it.note || "").trim(), country: String(it.country || "").trim().slice(0, 30), code: String(it.code || "").trim().toUpperCase().slice(0, 30) });
+      subtotal += price * qty; dpTarget += dp * qty;
+    }
+    const discount = Math.min(Math.max(0, toInt(b.discount)), subtotal);
+    const taxable = subtotal - discount, tax = Math.round(taxable * (parseFloat(s.tax_percent) || 0) / 100);
+    total = taxable + tax;
+    if (total < o.paid_amount) throw new ApiError(`Total baru (${total}) lebih kecil dari yang sudah dibayar (${o.paid_amount}). Hapus/ubah pembayaran dulu.`);
+    let custId = b.customer_id || null, custName = o.customer_name;
+    if (custId) { const cu = await one(env, "SELECT name FROM customers WHERE id=?", custId); if (cu) custName = cu.name; else custId = null; }
+    if (!custId) custName = String(b.customer_name || "").trim() || "Umum";
+    const full = total > 0 && o.paid_amount >= total ? 1 : (total === 0 ? 1 : 0);
+    stmts.push(st(env, "DELETE FROM order_items WHERE order_id=?", id));
+    for (const l of lines) {
+      stmts.push(st(env, "UPDATE products SET price=?,dp=?,cost=?,active=1,country=?,code=? WHERE lower(name)=lower(?)", l.price, l.dp, l.cost, l.country, l.code, l.name));
+      stmts.push(st(env, "INSERT INTO products(name,category,price,cost,dp,stock,active,country,code) SELECT ?,'Umum',?,?,?,NULL,1,?,? WHERE NOT EXISTS(SELECT 1 FROM products WHERE lower(name)=lower(?))", l.name, l.price, l.cost, l.dp, l.country, l.code, l.name));
+      stmts.push(st(env, "INSERT INTO order_items(order_id,product_id,name,price,dp,cost,qty,note,country,code) VALUES(?,(SELECT id FROM products WHERE lower(name)=lower(?) LIMIT 1),?,?,?,?,?,?,?,?)", id, l.name, l.name, l.price, l.dp, l.cost, l.qty, l.note, l.country, l.code));
+    }
+    stmts.push(st(env, "UPDATE orders SET customer_id=?,customer_name=?,type=?,subtotal=?,discount=?,tax=?,total=?,dp_target=?,paid=?,paid_at=CASE WHEN ?=1 AND paid_at IS NULL THEN ? WHEN ?=0 THEN NULL ELSE paid_at END WHERE id=?",
+      custId, custName, String(b.type || o.type), subtotal, discount, tax, total, dpTarget, full, full, nowIso(), full, id));
+  }
   if (b.pay_amount !== undefined && b.pay_amount !== null || b.paid) {
     if (o.status === "batal") throw new ApiError("Order sudah dibatalkan");
-    const remaining = o.total - o.paid_amount;
+    const remaining = total - o.paid_amount;
     if (remaining <= 0) throw new ApiError("Order sudah lunas");
     const amount = b.pay_amount !== undefined && b.pay_amount !== null ? toInt(b.pay_amount) : remaining;
-    stmts.push(...paymentStmts(env, id, o.total, o.paid_amount, amount, String(b.method || "Tunai"), toInt(b.cash_received), c.user.name));
+    stmts.push(...paymentStmts(env, id, total, o.paid_amount, amount, String(b.method || "Tunai"), toInt(b.cash_received), c.user.name));
   }
   const note = "note" in b ? String(b.note).trim() : o.note;
   stmts.push(st(env, "UPDATE orders SET status=?,note=? WHERE id=?", status, note, id));
