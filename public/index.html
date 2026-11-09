@@ -168,8 +168,10 @@ h2:before{content:"♡ ";color:var(--primary)}
 .inv-logo{width:62px;height:62px;border-radius:16px;border:2px solid var(--ink);box-shadow:3px 3px 0 var(--ink);flex-shrink:0}
 .inv-brand{flex:1;min-width:0}
 .brackets{font-weight:700;font-size:24px;color:#231f1e;line-height:1.1}
-.inv-brand .tg{font-size:12px;color:#231f1e;margin-top:2px}
-.inv-brand .ad{font-size:11px;color:#231f1e;opacity:.8}
+.inv-brand .tg,.inv-brand .ad{display:table;max-width:100%;margin-top:5px;padding:2px 11px;background:#fffaf0;color:#231f1e;border:1.5px solid #231f1e;border-radius:999px;font-weight:600;line-height:1.35;box-shadow:2px 2px 0 #231f1e}
+.inv-brand .tg{font-size:12.5px}
+.inv-brand .ad{font-size:12px}
+.inv-brand .tg:empty,.inv-brand .ad:empty{display:none}
 .inv-char{width:84px;height:84px;border-radius:50%;border:3px solid var(--ink);flex-shrink:0;background:var(--primary);margin:-4px 0 -22px;position:relative;box-shadow:3px 3px 0 var(--ink)}
 .inv-ribbon{display:flex;justify-content:space-between;align-items:center;background:var(--ink);color:#fff;padding:6px 18px;font-weight:700;letter-spacing:.08em}
 .inv-ribbon b{color:#ffb3d1}
@@ -278,8 +280,9 @@ body{background-image:radial-gradient(color-mix(in srgb,var(--primary) 32%,trans
 @media print{.invoice tr,.settle,.payopts,.po,.inv-foot,.inv-code{break-inside:avoid;page-break-inside:avoid}.invoice th{break-after:avoid}}
 .stamp.wait{color:var(--primary-dark);font-size:12px}
 @media(max-width:560px){
+  .invoice:not(.wide)::before{left:auto;right:18px;width:84px;height:22px;transform:rotate(-1deg)}
   .invoice:not(.wide) .inv-head{padding:10px 12px;gap:8px}.invoice:not(.wide) .inv-logo{width:46px;height:46px}.invoice:not(.wide) .inv-char{width:58px;height:58px;margin:0}
-  .invoice:not(.wide) .brackets{font-size:17px;white-space:nowrap}.invoice:not(.wide) .inv-brand .ad{display:none}
+  .invoice:not(.wide) .brackets{font-size:17px;white-space:nowrap}.invoice:not(.wide) .inv-brand .tg,.invoice:not(.wide) .inv-brand .ad{font-size:10px;padding:1px 8px;box-shadow:1px 1px 0 #231f1e}
   .invoice:not(.wide) .inv-body{padding:12px 10px 6px 30px}.invoice:not(.wide) .inv-body::before{left:6px;width:14px;background-size:14px 28px}
   .invoice:not(.wide) .inv-meta{grid-template-columns:1fr}.invoice:not(.wide) .dpc{display:none}
   .invoice:not(.wide) table{font-size:11px}.invoice:not(.wide) th,.invoice:not(.wide) td{padding:4px 2px}.invoice:not(.wide) td.num,.invoice:not(.wide) th.num{white-space:nowrap}
