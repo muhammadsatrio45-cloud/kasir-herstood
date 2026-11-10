@@ -232,7 +232,7 @@ async function hOrderCreate(c) {
       number, custId, custName, type, "baru", 0, "", subtotal, discount, tax, total, 0, note, cashier, nowIso(), null, dpTarget)];
     for (const l of lines) {
       // produk master: ketik manual -> otomatis jadi master, harga/DP terakhir jadi default
-      stmts.push(st(env, "UPDATE products SET price=?,dp=?,cost=?,active=1,country=?,code=? WHERE lower(name)=lower(?)", l.price, l.dp, l.cost, l.country, l.code, l.name));
+      stmts.push(st(env, "UPDATE products SET price=?,dp=?,cost=?,active=1,country=CASE WHEN country='' THEN ? ELSE country END,code=CASE WHEN code='' THEN ? ELSE code END WHERE lower(name)=lower(?)", l.price, l.dp, l.cost, l.country, l.code, l.name));
       stmts.push(st(env, "INSERT INTO products(name,category,price,cost,dp,stock,active,country,code) SELECT ?,'Umum',?,?,?,NULL,1,?,? WHERE NOT EXISTS(SELECT 1 FROM products WHERE lower(name)=lower(?))", l.name, l.price, l.cost, l.dp, l.country, l.code, l.name));
       stmts.push(st(env, `INSERT INTO order_items(order_id,product_id,name,price,dp,cost,qty,note,country,code) VALUES(${oidSql},(SELECT id FROM products WHERE lower(name)=lower(?) LIMIT 1),?,?,?,?,?,?,?,?)`, number, l.name, l.name, l.price, l.dp, l.cost, l.qty, l.note, l.country, l.code));
     }
@@ -277,7 +277,7 @@ async function hOrderUpdate(c, id) {
     const full = total > 0 && o.paid_amount >= total ? 1 : (total === 0 ? 1 : 0);
     stmts.push(st(env, "DELETE FROM order_items WHERE order_id=?", id));
     for (const l of lines) {
-      stmts.push(st(env, "UPDATE products SET price=?,dp=?,cost=?,active=1,country=?,code=? WHERE lower(name)=lower(?)", l.price, l.dp, l.cost, l.country, l.code, l.name));
+      stmts.push(st(env, "UPDATE products SET price=?,dp=?,cost=?,active=1,country=CASE WHEN country='' THEN ? ELSE country END,code=CASE WHEN code='' THEN ? ELSE code END WHERE lower(name)=lower(?)", l.price, l.dp, l.cost, l.country, l.code, l.name));
       stmts.push(st(env, "INSERT INTO products(name,category,price,cost,dp,stock,active,country,code) SELECT ?,'Umum',?,?,?,NULL,1,?,? WHERE NOT EXISTS(SELECT 1 FROM products WHERE lower(name)=lower(?))", l.name, l.price, l.cost, l.dp, l.country, l.code, l.name));
       stmts.push(st(env, "INSERT INTO order_items(order_id,product_id,name,price,dp,cost,qty,note,country,code) VALUES(?,(SELECT id FROM products WHERE lower(name)=lower(?) LIMIT 1),?,?,?,?,?,?,?,?)", id, l.name, l.name, l.price, l.dp, l.cost, l.qty, l.note, l.country, l.code));
     }

@@ -694,7 +694,9 @@ function openPOS(edit) {
   };
   $("#aName", m).oninput = e => {
     const p = masterBy(e.target.value), h = $("#aHint", m);
-    if (p) fillFrom(p, "name");
+    const typed = $("#aCode", m).value.trim().toLowerCase();
+    if (p && (!typed || typed === (p.code || "").toLowerCase())) fillFrom(p, "name");
+    else if (p) h.textContent = `Deskripsi ini sudah ada di master dengan kode ${p.code || "(kosong)"}. Kode yang kamu ketik tetap dipakai untuk invoice ini.`;
     else h.textContent = e.target.value.trim() ? "✦ Produk baru, otomatis masuk master setelah order disimpan." : "";
   };
   const addManual = () => {
