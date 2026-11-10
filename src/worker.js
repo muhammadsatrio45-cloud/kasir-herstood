@@ -101,11 +101,11 @@ function productPayload(b) {
   return p;
 }
 async function dupCheck(env, p, selfId) {
-  const d = await one(env, "SELECT id FROM products WHERE lower(name)=lower(?) AND id<>?", p[0], selfId || 0);
-  if (d) throw new ApiError("Deskripsi produk itu sudah ada di master. Kode produk boleh sama, tapi deskripsi tidak boleh dobel.");
+  const d = await one(env, "SELECT id FROM products WHERE lower(name)=lower(?) AND code=? AND id<>?", p[0], p[8], selfId || 0);
+  if (d) throw new ApiError("Produk dengan kode dan deskripsi yang sama sudah ada di master. Kalau beda kode, silakan isi kodenya.");
 }
 async function hProductDedupe(c) {
-  const dups = await all(c.env, "SELECT p.id, (SELECT MIN(id) FROM products q WHERE lower(q.name)=lower(p.name)) AS keep FROM products p");
+  const dups = await all(c.env, "SELECT p.id, (SELECT MIN(id) FROM products q WHERE lower(q.name)=lower(p.name) AND q.code=p.code) AS keep FROM products p");
   const gone = dups.filter(d => d.id !== d.keep);
   const stmts = [];
   for (const d of gone) { stmts.push(st(c.env, "UPDATE order_items SET product_id=? WHERE product_id=?", d.keep, d.id)); stmts.push(st(c.env, "DELETE FROM products WHERE id=?", d.id)); }
@@ -232,9 +232,9 @@ async function hOrderCreate(c) {
       number, custId, custName, type, "baru", 0, "", subtotal, discount, tax, total, 0, note, cashier, nowIso(), null, dpTarget)];
     for (const l of lines) {
       // produk master: ketik manual -> otomatis jadi master, harga/DP terakhir jadi default
-      stmts.push(st(env, "UPDATE products SET price=?,dp=?,cost=?,active=1,country=CASE WHEN country='' THEN ? ELSE country END,code=CASE WHEN code='' THEN ? ELSE code END WHERE lower(name)=lower(?)", l.price, l.dp, l.cost, l.country, l.code, l.name));
-      stmts.push(st(env, "INSERT INTO products(name,category,price,cost,dp,stock,active,country,code) SELECT ?,'Umum',?,?,?,NULL,1,?,? WHERE NOT EXISTS(SELECT 1 FROM products WHERE lower(name)=lower(?))", l.name, l.price, l.cost, l.dp, l.country, l.code, l.name));
-      stmts.push(st(env, `INSERT INTO order_items(order_id,product_id,name,price,dp,cost,qty,note,country,code) VALUES(${oidSql},(SELECT id FROM products WHERE lower(name)=lower(?) LIMIT 1),?,?,?,?,?,?,?,?)`, number, l.name, l.name, l.price, l.dp, l.cost, l.qty, l.note, l.country, l.code));
+      stmts.push(st(env, "UPDATE products SET price=?,dp=?,cost=?,active=1,country=CASE WHEN country='' THEN ? ELSE country END WHERE lower(name)=lower(?) AND code=?", l.price, l.dp, l.cost, l.country, l.name, l.code));
+      stmts.push(st(env, "INSERT INTO products(name,category,price,cost,dp,stock,active,country,code) SELECT ?,'Umum',?,?,?,NULL,1,?,? WHERE NOT EXISTS(SELECT 1 FROM products WHERE lower(name)=lower(?) AND code=?)", l.name, l.price, l.cost, l.dp, l.country, l.code, l.name, l.code));
+      stmts.push(st(env, `INSERT INTO order_items(order_id,product_id,name,price,dp,cost,qty,note,country,code) VALUES(${oidSql},(SELECT id FROM products WHERE lower(name)=lower(?) AND code=? LIMIT 1),?,?,?,?,?,?,?,?)`, number, l.name, l.code, l.name, l.price, l.dp, l.cost, l.qty, l.note, l.country, l.code));
     }
     try { await env.DB.batch(stmts); } catch (e) { if (/UNIQUE/i.test(String(e)) && attempt < 3) continue; throw e; }
     const oid = (await one(env, "SELECT id FROM orders WHERE number=?", number)).id;
@@ -277,9 +277,9 @@ async function hOrderUpdate(c, id) {
     const full = total > 0 && o.paid_amount >= total ? 1 : (total === 0 ? 1 : 0);
     stmts.push(st(env, "DELETE FROM order_items WHERE order_id=?", id));
     for (const l of lines) {
-      stmts.push(st(env, "UPDATE products SET price=?,dp=?,cost=?,active=1,country=CASE WHEN country='' THEN ? ELSE country END,code=CASE WHEN code='' THEN ? ELSE code END WHERE lower(name)=lower(?)", l.price, l.dp, l.cost, l.country, l.code, l.name));
-      stmts.push(st(env, "INSERT INTO products(name,category,price,cost,dp,stock,active,country,code) SELECT ?,'Umum',?,?,?,NULL,1,?,? WHERE NOT EXISTS(SELECT 1 FROM products WHERE lower(name)=lower(?))", l.name, l.price, l.cost, l.dp, l.country, l.code, l.name));
-      stmts.push(st(env, "INSERT INTO order_items(order_id,product_id,name,price,dp,cost,qty,note,country,code) VALUES(?,(SELECT id FROM products WHERE lower(name)=lower(?) LIMIT 1),?,?,?,?,?,?,?,?)", id, l.name, l.name, l.price, l.dp, l.cost, l.qty, l.note, l.country, l.code));
+      stmts.push(st(env, "UPDATE products SET price=?,dp=?,cost=?,active=1,country=CASE WHEN country='' THEN ? ELSE country END WHERE lower(name)=lower(?) AND code=?", l.price, l.dp, l.cost, l.country, l.name, l.code));
+      stmts.push(st(env, "INSERT INTO products(name,category,price,cost,dp,stock,active,country,code) SELECT ?,'Umum',?,?,?,NULL,1,?,? WHERE NOT EXISTS(SELECT 1 FROM products WHERE lower(name)=lower(?) AND code=?)", l.name, l.price, l.cost, l.dp, l.country, l.code, l.name, l.code));
+      stmts.push(st(env, "INSERT INTO order_items(order_id,product_id,name,price,dp,cost,qty,note,country,code) VALUES(?,(SELECT id FROM products WHERE lower(name)=lower(?) AND code=? LIMIT 1),?,?,?,?,?,?,?,?)", id, l.name, l.code, l.name, l.price, l.dp, l.cost, l.qty, l.note, l.country, l.code));
     }
     stmts.push(st(env, "UPDATE orders SET customer_id=?,customer_name=?,type=?,subtotal=?,discount=?,tax=?,total=?,dp_target=?,paid=?,paid_at=CASE WHEN ?=1 AND paid_at IS NULL THEN ? WHEN ?=0 THEN NULL ELSE paid_at END WHERE id=?",
       custId, custName, String(b.type || o.type), subtotal, discount, tax, total, dpTarget, full, full, nowIso(), full, id));

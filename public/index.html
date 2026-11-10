@@ -661,7 +661,6 @@ function openPOS(edit) {
       <button class="btn ok" id="pSave" disabled>${edit ? "Simpan Perubahan" : "Simpan Order"}</button>
     </div></div>`, "wide");
   $("#pClose", m).onclick = closeModal;
-  const masterBy = n => S.products.find(p => p.name.toLowerCase() === n.trim().toLowerCase());
   
   /* produk master */
   function renderMaster() {
@@ -688,16 +687,20 @@ function openPOS(edit) {
     const c = e.target.value.trim().toLowerCase(), h = $("#aHint", m);
     const list = c ? S.products.filter(p => (p.code || "").toLowerCase() === c) : [];
     nameOpts(list.length ? list : S.products);
-    if (list.length === 1) fillFrom(list[0], "code");
-    else if (list.length > 1) h.textContent = `✓ Ada ${list.length} produk dengan kode ini. Klik kolom Deskripsi lalu pilih salah satu.`;
-    else h.textContent = c ? "✦ Kode baru. Ketik deskripsinya sendiri." : "";
+    const nmNow = $("#aName", m).value.trim().toLowerCase(), both = nmNow ? list.find(p => p.name.toLowerCase() === nmNow) : null;
+    if (both) fillFrom(both, "name");
+    else if (list.length === 1 && !nmNow) fillFrom(list[0], "code");
+    else if (list.length > 1 && !nmNow) h.textContent = `✓ Ada ${list.length} produk dengan kode ini. Klik kolom Deskripsi lalu pilih salah satu.`;
+    else h.textContent = !c ? "" : list.length ? "" : "✦ Kode baru. Ketik deskripsinya sendiri.";
   };
   $("#aName", m).oninput = e => {
-    const p = masterBy(e.target.value), h = $("#aHint", m);
-    const typed = $("#aCode", m).value.trim().toLowerCase();
-    if (p && (!typed || typed === (p.code || "").toLowerCase())) fillFrom(p, "name");
-    else if (p) h.textContent = `Deskripsi ini sudah ada di master dengan kode ${p.code || "(kosong)"}. Kode yang kamu ketik tetap dipakai untuk invoice ini.`;
-    else h.textContent = e.target.value.trim() ? "✦ Produk baru, otomatis masuk master setelah order disimpan." : "";
+    const nm = e.target.value.trim().toLowerCase(), h = $("#aHint", m), typed = $("#aCode", m).value.trim().toLowerCase();
+    const same = nm ? S.products.filter(p => p.name.toLowerCase() === nm) : [];
+    const exact = typed ? same.find(p => (p.code || "").toLowerCase() === typed) : null;
+    if (exact) fillFrom(exact, "name");
+    else if (!typed && same.length === 1) fillFrom(same[0], "name");
+    else if (!typed && same.length > 1) h.textContent = `Ada ${same.length} produk dengan deskripsi ini (kode: ${same.map(p => p.code || "-").join(", ")}). Isi kode produknya.`;
+    else h.textContent = nm ? "✦ Produk baru, otomatis masuk master setelah order disimpan." : "";
   };
   const addManual = () => {
     const name = $("#aName", m).value.replace(/\s+/g, " ").trim(), price = +$("#aPrice", m).value || 0, dp = +$("#aDp", m).value || 0, qty = Math.max(1, +$("#aQty", m).value || 1), cost = +$("#aCost", m).value || 0, country = $("#aCountry", m).value, code = $("#aCode", m).value.trim().toUpperCase();
@@ -938,7 +941,7 @@ async function vMaster() {
   const list = await api("GET", "/api/products");
   $("#topActions").innerHTML = `<div class="searchbox">${svg("search")}<input class="input" id="mQ" placeholder="Cari produk"></div><select class="input" id="mC" style="width:auto"><option value="">Semua negara</option>${countries().map(c => `<option>${esc(c)}</option>`).join("")}</select>${isAdmin() ? `<button class="btn sec" id="mDedupe">Rapikan duplikat</button><button class="btn" id="mNew">+ Tambah Produk</button>` : ""}`;
   $("#mNew")?.addEventListener("click", () => productForm());
-  $("#mDedupe")?.addEventListener("click", guard(async () => { if (!confirm("Gabungkan produk master dengan deskripsi yang sama? Invoice lama tetap aman.")) return; const r = await api("POST", "/api/products/dedupe", {}); toast(r.removed ? `${r.removed} produk dobel dihapus` : "Tidak ada duplikat"); await refreshProducts(); vMaster(); }));
+  $("#mDedupe")?.addEventListener("click", guard(async () => { if (!confirm("Gabungkan produk master yang kode DAN deskripsinya sama persis? Invoice lama tetap aman.")) return; const r = await api("POST", "/api/products/dedupe", {}); toast(r.removed ? `${r.removed} produk dobel dihapus` : "Tidak ada duplikat"); await refreshProducts(); vMaster(); }));
   const draw = () => {
     const q = ($("#mQ")?.value || "").toLowerCase(), mc = $("#mC")?.value || ""; const l = list.filter(p => (p.name + " " + (p.code || "")).toLowerCase().includes(q) && (!mc || p.country === mc));
     $("#view").innerHTML = l.length ? `<p class="muted" style="margin:0 0 10px">Produk yang kamu ketik saat order otomatis masuk ke sini, jadi tinggal pilih di order berikutnya ♡</p>
