@@ -100,11 +100,25 @@ function productPayload(b) {
   if (p[4] > p[2]) throw new ApiError("DP tidak boleh lebih besar dari harga");
   return p;
 }
+async function dupCheck(env, p, selfId) {
+  const d = await one(env, "SELECT id FROM products WHERE lower(name)=lower(?) AND id<>?", p[0], selfId || 0);
+  if (d) throw new ApiError("Deskripsi produk itu sudah ada di master. Kode produk boleh sama, tapi deskripsi tidak boleh dobel.");
+}
+async function hProductDedupe(c) {
+  const dups = await all(c.env, "SELECT p.id, (SELECT MIN(id) FROM products q WHERE lower(q.name)=lower(p.name)) AS keep FROM products p");
+  const gone = dups.filter(d => d.id !== d.keep);
+  const stmts = [];
+  for (const d of gone) { stmts.push(st(c.env, "UPDATE order_items SET product_id=? WHERE product_id=?", d.keep, d.id)); stmts.push(st(c.env, "DELETE FROM products WHERE id=?", d.id)); }
+  if (stmts.length) await c.env.DB.batch(stmts);
+  return { removed: gone.length };
+}
 async function hProductCreate(c) {
+  await dupCheck(c.env, productPayload(c.body));
   const r = await run(c.env, "INSERT INTO products(name,category,price,cost,dp,stock,active,country,code) VALUES(?,?,?,?,?,?,?,?,?)", ...productPayload(c.body));
   return await one(c.env, "SELECT * FROM products WHERE id=?", r.meta.last_row_id);
 }
 async function hProductUpdate(c, id) {
+  await dupCheck(c.env, productPayload(c.body), id);
   await run(c.env, "UPDATE products SET name=?,category=?,price=?,cost=?,dp=?,stock=?,active=?,country=?,code=? WHERE id=?", ...productPayload(c.body), id);
   const r = await one(c.env, "SELECT * FROM products WHERE id=?", id);
   if (!r) throw new ApiError("Produk tidak ditemukan", 404);
@@ -387,7 +401,7 @@ const ROUTES = [
   ["GET", /^\/api\/customers$/, hCustomersList, "user"], ["POST", /^\/api\/customers$/, hCustomerCreate, "user"],
   ["PUT", /^\/api\/customers\/(\d+)$/, hCustomerUpdate, "user"], ["DELETE", /^\/api\/customers\/(\d+)$/, hCustomerDelete, "admin"],
   ["GET", /^\/api\/orders$/, hOrdersList, "user"], ["POST", /^\/api\/orders$/, hOrderCreate, "user"],
-  ["GET", /^\/api\/orders\/(\d+)$/, hOrderGet, "user"], ["PUT", /^\/api\/orders\/(\d+)$/, hOrderUpdate, "user"], ["DELETE", /^\/api\/orders\/(\d+)$/, hOrderDelete, "admin"],
+  ["GET", /^\/api\/orders\/(\d+)$/, hOrderGet, "user"], ["PUT", /^\/api\/orders\/(\d+)$/, hOrderUpdate, "user"], ["DELETE", /^\/api\/orders\/(\d+)$/, hOrderDelete, "admin"], ["POST", /^\/api\/products\/dedupe$/, hProductDedupe, "admin"],
   ["GET", /^\/api\/expenses$/, hExpensesList, "user"], ["POST", /^\/api\/expenses$/, hExpenseCreate, "user"], ["DELETE", /^\/api\/expenses\/(\d+)$/, hExpenseDelete, "admin"],
   ["GET", /^\/api\/dashboard$/, hDashboard, "user"], ["GET", /^\/api\/report$/, hReport, "user"], ["GET", /^\/api\/export\.csv$/, hExportCsv, "admin"],
   ["PUT", /^\/api\/settings$/, hSettingsUpdate, "admin"], ["GET", /^\/api\/users$/, hUsersList, "admin"], ["POST", /^\/api\/users$/, hUserCreate, "admin"],

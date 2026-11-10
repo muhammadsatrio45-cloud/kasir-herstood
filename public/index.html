@@ -662,8 +662,7 @@ function openPOS(edit) {
     </div></div>`, "wide");
   $("#pClose", m).onclick = closeModal;
   const masterBy = n => S.products.find(p => p.name.toLowerCase() === n.trim().toLowerCase());
-  const masterByCode = c => c.trim() && S.products.find(p => (p.code || "").toLowerCase() === c.trim().toLowerCase());
-
+  
   /* produk master */
   function renderMaster() {
     const q = $("#pQ", m).value.toLowerCase();
@@ -684,7 +683,15 @@ function openPOS(edit) {
     if (how === "code") $("#aName", m).value = p.name; else $("#aCode", m).value = p.code || "";
     $("#aHint", m).textContent = "✓ Produk master: harga & DP terakhir terisi otomatis (boleh diubah).";
   };
-  $("#aCode", m).oninput = e => { const p = masterByCode(e.target.value); if (p) fillFrom(p, "code"); };
+  const nameOpts = list => $("#masterList", m).innerHTML = list.map(p => `<option value="${esc(p.name)}">`).join("");
+  $("#aCode", m).oninput = e => {
+    const c = e.target.value.trim().toLowerCase(), h = $("#aHint", m);
+    const list = c ? S.products.filter(p => (p.code || "").toLowerCase() === c) : [];
+    nameOpts(list.length ? list : S.products);
+    if (list.length === 1) fillFrom(list[0], "code");
+    else if (list.length > 1) h.textContent = `✓ Ada ${list.length} produk dengan kode ini. Klik kolom Deskripsi lalu pilih salah satu.`;
+    else h.textContent = c ? "✦ Kode baru. Ketik deskripsinya sendiri." : "";
+  };
   $("#aName", m).oninput = e => {
     const p = masterBy(e.target.value), h = $("#aHint", m);
     if (p) fillFrom(p, "name");
@@ -927,8 +934,9 @@ function printInvoice(o, kind) {
 /* ============ master produk ============ */
 async function vMaster() {
   const list = await api("GET", "/api/products");
-  $("#topActions").innerHTML = `<div class="searchbox">${svg("search")}<input class="input" id="mQ" placeholder="Cari produk"></div><select class="input" id="mC" style="width:auto"><option value="">Semua negara</option>${countries().map(c => `<option>${esc(c)}</option>`).join("")}</select>${isAdmin() ? `<button class="btn" id="mNew">+ Tambah Produk</button>` : ""}`;
+  $("#topActions").innerHTML = `<div class="searchbox">${svg("search")}<input class="input" id="mQ" placeholder="Cari produk"></div><select class="input" id="mC" style="width:auto"><option value="">Semua negara</option>${countries().map(c => `<option>${esc(c)}</option>`).join("")}</select>${isAdmin() ? `<button class="btn sec" id="mDedupe">Rapikan duplikat</button><button class="btn" id="mNew">+ Tambah Produk</button>` : ""}`;
   $("#mNew")?.addEventListener("click", () => productForm());
+  $("#mDedupe")?.addEventListener("click", guard(async () => { if (!confirm("Gabungkan produk master dengan deskripsi yang sama? Invoice lama tetap aman.")) return; const r = await api("POST", "/api/products/dedupe", {}); toast(r.removed ? `${r.removed} produk dobel dihapus` : "Tidak ada duplikat"); await refreshProducts(); vMaster(); }));
   const draw = () => {
     const q = ($("#mQ")?.value || "").toLowerCase(), mc = $("#mC")?.value || ""; const l = list.filter(p => (p.name + " " + (p.code || "")).toLowerCase().includes(q) && (!mc || p.country === mc));
     $("#view").innerHTML = l.length ? `<p class="muted" style="margin:0 0 10px">Produk yang kamu ketik saat order otomatis masuk ke sini, jadi tinggal pilih di order berikutnya ♡</p>
@@ -937,7 +945,7 @@ async function vMaster() {
     <td class="num">${isAdmin() ? `<button class="btn sec sm" data-e="${p.id}">Edit</button> <button class="btn danger sm" data-d="${p.id}">Hapus</button>` : ""}</td></tr>`).join("")}</table></div>`
       : emptyBox("Master produk masih kosong. Buat order pertama dan ketik produknya, nanti otomatis tersimpan di sini ✿");
     $$("[data-e]").forEach(b => b.onclick = () => productForm(list.find(p => p.id === +b.dataset.e)));
-    $$("[data-d]").forEach(b => b.onclick = guard(async () => { if (confirm("Hapus produk dari master? Invoice lama tetap aman.")) { await api("DELETE", "/api/products/" + b.dataset.d); await refreshProducts(); vMaster(); } }));
+        $$("[data-d]").forEach(b => b.onclick = guard(async () => { if (confirm("Hapus produk dari master? Invoice lama tetap aman.")) { await api("DELETE", "/api/products/" + b.dataset.d); await refreshProducts(); vMaster(); } }));
   };
   $("#mQ").oninput = draw; $("#mC").onchange = draw; draw();
 }
