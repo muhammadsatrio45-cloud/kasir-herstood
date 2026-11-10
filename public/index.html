@@ -653,7 +653,7 @@ function openPOS(edit) {
       <div id="pLines"></div>
       <div class="two"><div class="field" style="margin:0"><label>Pelanggan</label><select class="input" id="pCust"><option value="">Umum</option>${S.customers.filter(c => c.name !== "Umum").map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select></div>
       <div class="field" style="margin:0"><label>Jenis</label><select class="input" id="pType"><option>Pre-Order</option><option>Ready Stock</option><option>Titip Beli</option></select></div></div>
-      <input class="input" id="pName" placeholder="Nama pelanggan (opsional)">
+      <input class="input" id="pName" list="custList" autocomplete="off" placeholder="Atau ketik nama pelanggan baru (otomatis tersimpan)"><datalist id="custList">${S.customers.filter(c => c.name !== "Umum").map(c => `<option value="${esc(c.name)}">`).join("")}</datalist>
       <div class="two"><div class="field" style="margin:0"><label>Diskon (${esc(S.settings.currency)})</label><input class="input" type="number" min="0" id="pDisc" placeholder="0"></div>
       <div class="field" style="margin:0"><label>Catatan</label><input class="input" id="pNote"></div></div>
       <div id="pTot"></div>
@@ -973,6 +973,7 @@ function productForm(p = {}) {
 
 /* ============ pelanggan ============ */
 async function vCustomers() {
+  try { const r = await api("POST", "/api/customers/sync", {}); if (r.added) { toast(`${r.added} pelanggan diambil dari riwayat order`); await refreshProducts(); } } catch (e) {}
   const list = await api("GET", "/api/customers");
   $("#topActions").innerHTML = `<button class="btn" id="cNew">+ Tambah Pelanggan</button>`;
   $("#cNew").onclick = () => customerForm();

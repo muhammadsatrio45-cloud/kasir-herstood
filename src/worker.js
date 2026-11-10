@@ -154,6 +154,26 @@ async function loadOrder(env, id) {
   o.remaining = o.total - o.paid_amount;
   return o;
 }
+// nama pelanggan yang diketik langsung otomatis masuk menu Pelanggan
+async function ensureCustomer(env, name) {
+  if (!name || name.toLowerCase() === "umum") return null;
+  const ex = await one(env, "SELECT id FROM customers WHERE lower(name)=lower(?) ORDER BY id LIMIT 1", name);
+  if (ex) return ex.id;
+  const r = await run(env, "INSERT INTO customers(name,phone,address,note) VALUES(?,?,?,?)", name, "", "", "");
+  return r.meta.last_row_id;
+}
+// ambil nama pelanggan dari riwayat order yang belum terhubung ke menu Pelanggan
+async function hCustomersSync(c) {
+  const rows = await all(c.env, "SELECT DISTINCT customer_name AS n FROM orders WHERE customer_id IS NULL AND trim(customer_name)<>'' AND lower(customer_name)<>'umum'");
+  let added = 0;
+  for (const r of rows) {
+    const before = await one(c.env, "SELECT id FROM customers WHERE lower(name)=lower(?)", r.n);
+    const id = await ensureCustomer(c.env, r.n.trim());
+    if (!before) added++;
+    await run(c.env, "UPDATE orders SET customer_id=? WHERE customer_id IS NULL AND lower(customer_name)=lower(?)", id, r.n);
+  }
+  return { added };
+}
 async function hOrdersList(c) {
   const q = c.query, date = q.get("date") || "today", search = (q.get("q") || "").trim();
   const where = [], args = [];
@@ -223,7 +243,7 @@ async function hOrderCreate(c) {
   const method = String(b.method || "Tunai"), cash = toInt(b.cash_received);
   let custId = b.customer_id || null, custName = "Umum";
   if (custId) { const cu = await one(env, "SELECT name FROM customers WHERE id=?", custId); if (cu) custName = cu.name; else custId = null; }
-  if (b.customer_name && !custId) custName = String(b.customer_name).trim() || "Umum";
+  if (b.customer_name && !custId) { custName = String(b.customer_name).trim() || "Umum"; custId = await ensureCustomer(env, custName); }
   const type = String(b.type || "Pre-Order"), note = String(b.note || "").trim(), cashier = c.user.name;
   for (let attempt = 0; attempt < 4; attempt++) {
     const number = await nextNumber(env, s.invoice_prefix || "INV");
@@ -273,7 +293,7 @@ async function hOrderUpdate(c, id) {
     if (total < o.paid_amount) throw new ApiError(`Total baru (${total}) lebih kecil dari yang sudah dibayar (${o.paid_amount}). Hapus/ubah pembayaran dulu.`);
     let custId = b.customer_id || null, custName = o.customer_name;
     if (custId) { const cu = await one(env, "SELECT name FROM customers WHERE id=?", custId); if (cu) custName = cu.name; else custId = null; }
-    if (!custId) custName = String(b.customer_name || "").trim() || "Umum";
+    if (!custId) { custName = String(b.customer_name || "").trim() || "Umum"; custId = await ensureCustomer(env, custName); }
     const full = total > 0 && o.paid_amount >= total ? 1 : (total === 0 ? 1 : 0);
     stmts.push(st(env, "DELETE FROM order_items WHERE order_id=?", id));
     for (const l of lines) {
@@ -401,7 +421,7 @@ const ROUTES = [
   ["GET", /^\/api\/customers$/, hCustomersList, "user"], ["POST", /^\/api\/customers$/, hCustomerCreate, "user"],
   ["PUT", /^\/api\/customers\/(\d+)$/, hCustomerUpdate, "user"], ["DELETE", /^\/api\/customers\/(\d+)$/, hCustomerDelete, "admin"],
   ["GET", /^\/api\/orders$/, hOrdersList, "user"], ["POST", /^\/api\/orders$/, hOrderCreate, "user"],
-  ["GET", /^\/api\/orders\/(\d+)$/, hOrderGet, "user"], ["PUT", /^\/api\/orders\/(\d+)$/, hOrderUpdate, "user"], ["DELETE", /^\/api\/orders\/(\d+)$/, hOrderDelete, "admin"], ["POST", /^\/api\/products\/dedupe$/, hProductDedupe, "admin"],
+  ["GET", /^\/api\/orders\/(\d+)$/, hOrderGet, "user"], ["PUT", /^\/api\/orders\/(\d+)$/, hOrderUpdate, "user"], ["DELETE", /^\/api\/orders\/(\d+)$/, hOrderDelete, "admin"], ["POST", /^\/api\/products\/dedupe$/, hProductDedupe, "admin"], ["POST", /^\/api\/customers\/sync$/, hCustomersSync, "user"],
   ["GET", /^\/api\/expenses$/, hExpensesList, "user"], ["POST", /^\/api\/expenses$/, hExpenseCreate, "user"], ["DELETE", /^\/api\/expenses\/(\d+)$/, hExpenseDelete, "admin"],
   ["GET", /^\/api\/dashboard$/, hDashboard, "user"], ["GET", /^\/api\/report$/, hReport, "user"], ["GET", /^\/api\/export\.csv$/, hExportCsv, "admin"],
   ["PUT", /^\/api\/settings$/, hSettingsUpdate, "admin"], ["GET", /^\/api\/users$/, hUsersList, "admin"], ["POST", /^\/api\/users$/, hUserCreate, "admin"],
