@@ -469,7 +469,7 @@ async function reportData(env, d1, d2) {
     one(env, `SELECT COALESCE(SUM(oi.cost*oi.qty),0) v ${J2}`, d1, d2),
     one(env, "SELECT COALESCE(SUM(amount),0) v FROM expenses WHERE date BETWEEN ? AND ?", d1, d2),
     all(env, `SELECT date(created_at) d, COUNT(*) orders, SUM(total) revenue FROM orders WHERE ${P} GROUP BY date(created_at) ORDER BY d`, d1, d2),
-    all(env, `SELECT oi.name, SUM(oi.qty) qty, SUM(oi.qty*oi.price) revenue ${J2} GROUP BY oi.name ORDER BY qty DESC LIMIT 10`, d1, d2),
+    all(env, `SELECT oi.code, oi.name, SUM(oi.qty) qty, SUM(oi.qty*oi.price) revenue ${J2} GROUP BY oi.code, lower(oi.name) ORDER BY qty DESC LIMIT 10`, d1, d2),
     all(env, `SELECT CASE WHEN oi.country='' THEN 'Tanpa negara' ELSE oi.country END country, COUNT(DISTINCT o.id) orders, SUM(oi.qty) qty, SUM(oi.qty*oi.price) revenue, SUM(oi.qty*oi.dp) dp, SUM(oi.qty*(oi.price-oi.cost)) margin ${J2} GROUP BY 1 ORDER BY revenue DESC`, d1, d2),
     all(env, "SELECT p.method, COUNT(*) orders, SUM(p.amount) total FROM payments p JOIN orders o ON o.id=p.order_id WHERE o.status!='batal' AND date(o.created_at) BETWEEN ? AND ? GROUP BY p.method", d1, d2),
     all(env, `SELECT cashier, COUNT(*) orders, SUM(total) total FROM orders WHERE ${P} GROUP BY cashier ORDER BY total DESC`, d1, d2),

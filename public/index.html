@@ -534,7 +534,7 @@ function barChart(daily, max) {
 }
 function topTable(rows) {
   if (!rows.length) return '<p class="muted">Belum ada data.</p>';
-  return `<table><tr><th>Produk</th><th class="num">Terjual</th><th class="num">Omset</th></tr>${rows.map(r => `<tr><td>${esc(r.name)}</td><td class="num">${r.qty}</td><td class="num">${fmt(r.revenue)}</td></tr>`).join("")}</table>`;
+  return `<table><tr><th>Produk</th><th class="num">Terjual</th><th class="num">Omset</th></tr>${rows.map(r => `<tr><td>${r.code ? `<b>${esc(r.code)}</b> ` : ""}${esc(r.name)}</td><td class="num">${r.qty}</td><td class="num">${fmt(r.revenue)}</td></tr>`).join("")}</table>`;
 }
 
 /* ============ negara asal ============ */
