@@ -10,6 +10,10 @@ export const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS order_items(id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE, product_id INTEGER, name TEXT NOT NULL, price INTEGER NOT NULL, cost INTEGER NOT NULL DEFAULT 0, dp INTEGER NOT NULL DEFAULT 0, qty INTEGER NOT NULL, note TEXT DEFAULT '', country TEXT NOT NULL DEFAULT '', code TEXT NOT NULL DEFAULT '')`,
   `CREATE TABLE IF NOT EXISTS expenses(id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, category TEXT NOT NULL DEFAULT 'Operasional', description TEXT DEFAULT '', amount INTEGER NOT NULL, cashier TEXT DEFAULT '')`,
   `CREATE TABLE IF NOT EXISTS payments(id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE, amount INTEGER NOT NULL, method TEXT DEFAULT '', kind TEXT NOT NULL DEFAULT 'bayar', cash_received INTEGER NOT NULL DEFAULT 0, cashier TEXT DEFAULT '', created_at TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS inventory(id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL DEFAULT '', name TEXT NOT NULL, country TEXT NOT NULL DEFAULT '', qty INTEGER NOT NULL DEFAULT 0, cost INTEGER NOT NULL DEFAULT 0, price INTEGER NOT NULL DEFAULT 0, note TEXT DEFAULT '', active INTEGER NOT NULL DEFAULT 1)`,
+  `CREATE TABLE IF NOT EXISTS inv_moves(id INTEGER PRIMARY KEY AUTOINCREMENT, inv_id INTEGER NOT NULL, delta INTEGER NOT NULL, reason TEXT DEFAULT '', ref TEXT DEFAULT '', created_at TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS capital(id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, party TEXT NOT NULL DEFAULT '', amount INTEGER NOT NULL, note TEXT DEFAULT '')`,
+  `CREATE TABLE IF NOT EXISTS payroll(id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, person TEXT NOT NULL, amount INTEGER NOT NULL, note TEXT DEFAULT '')`,
   `CREATE INDEX IF NOT EXISTS idx_orders_created ON orders(created_at)`,
   `CREATE INDEX IF NOT EXISTS idx_items_order ON order_items(order_id)`,
   `CREATE INDEX IF NOT EXISTS idx_pay_order ON payments(order_id)`,
@@ -36,4 +40,6 @@ export const DEFAULT_SETTINGS = {
   mascot_on: 1,
   payment_methods: ["Tunai", "QRIS", "Transfer"],
   countries: ["China", "Korea", "Thailand", "Jepang"],
+  pay_people: [{ name: "Awaaa", pct: 45 }, { name: "Iyooow", pct: 35 }, { name: "Ipaaaw", pct: 20 }],
+  capital_pct: 0,
 };

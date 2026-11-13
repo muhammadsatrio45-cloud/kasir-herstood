@@ -351,6 +351,8 @@ const ICON = {
   order: '<path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/>',
   produk: '<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>',
   pelanggan: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  inventory: '<path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><polyline points="3.3 7.5 12 12.5 20.7 7.5"/><line x1="12" y1="22" x2="12" y2="12.5"/>',
+  rekap: '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/>',
   keuangan: '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
   laporan: '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
   pengaturan: '<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>',
@@ -451,7 +453,7 @@ async function start() {
   applyTheme();
   $("#login").classList.add("hidden"); $("#app").classList.remove("hidden");
   $("#userInfo").textContent = `${S.user.name} (${S.user.role})`;
-  const items = [["dashboard", "Dashboard"], ["order", "Order"], ["produk", "Master Produk"], ["pelanggan", "Pelanggan"], ["keuangan", "Keuangan"], ["laporan", "Laporan"], ["pengaturan", "Pengaturan"]];
+  const items = [["dashboard", "Dashboard"], ["order", "Order"], ["rekap", "Rekap Order"], ["produk", "Master Produk"], ...(isAdmin() ? [["inventory", "Inventory"]] : []), ["pelanggan", "Pelanggan"], ...(isAdmin() ? [["keuangan", "Keuangan"], ["laporan", "Laporan"]] : []), ["pengaturan", "Pengaturan"]];
   $("#nav").innerHTML = items.map(([k, l]) => `<button data-v="${k}">${svg(k)}<span>${l}</span></button>`).join("");
   $$("#nav button").forEach(b => b.onclick = () => { go(b.dataset.v); $("#side").classList.remove("open"); });
   go(S.view || "order"); say("Halo " + S.user.name + "! ♡");
@@ -486,7 +488,7 @@ async function refreshSummary() {
 }
 
 /* ============ router ============ */
-const VIEWS = { dashboard: vDashboard, order: vOrder, produk: vMaster, pelanggan: vCustomers, keuangan: vFinance, laporan: vReport, pengaturan: vSettings };
+const VIEWS = { dashboard: vDashboard, order: vOrder, rekap: vRekap, produk: vMaster, inventory: vInventory, pelanggan: vCustomers, keuangan: vFinance, laporan: vReport, pengaturan: vSettings };
 const TITLES = { dashboard: "Dashboard", order: "Order", produk: "Master Produk", pelanggan: "Pelanggan", keuangan: "Keuangan", laporan: "Laporan", pengaturan: "Pengaturan" };
 function go(v) {
   S.view = v; $$("#nav button").forEach(b => b.classList.toggle("active", b.dataset.v === v));
@@ -627,7 +629,7 @@ function openPOS(edit) {
   const m = openModal(`<div class="row"><img class="mini-av mascot-wrap" src="/img/herstood-face.jpg" alt=""><h3 style="margin:0">${edit ? "Edit Invoice " + esc(edit.number) : "Order Baru ♡"}</h3><span class="spacer"></span><button class="btn sec sm" id="pClose">Tutup</button></div>
   <div class="pos" style="margin-top:12px">
     <div>
-      <div class="card">
+      <div id="jBox"><div class="card">
         <h2>Tambah produk</h2>
         <div class="two"><div class="field"><label>Negara asal barang</label><select class="input" id="aCountry">${countryOptions()}</select></div>
         <div class="field"><label>Kode produk</label><input class="input" id="aCode" list="codeList" autocomplete="off" placeholder="mis. JP-001">
@@ -646,13 +648,16 @@ function openPOS(edit) {
       </div>
       <h2 style="margin-top:16px">Produk master</h2>
       <input class="input" id="pQ" placeholder="Cari produk master…">
-      <div class="pgrid" id="pMaster"></div>
+      <div class="pgrid" id="pMaster"></div></div>
+      <div id="rBox" class="hidden"><div class="card"><h2>Pilih dari Inventory</h2>
+        <p class="muted sm" style="margin:0 0 8px">Order Ready Stock mengambil barang dari Inventory. Harga jual & modal terisi otomatis, stok berkurang saat order disimpan.</p>
+        <input class="input" id="iQ" placeholder="Cari kode atau deskripsi…"><div class="pgrid" id="iGrid" style="margin-top:10px"></div></div></div>
     </div>
     <div class="cart">
       <h2 style="margin:0">Keranjang <span class="cnt" id="cCount">0</span></h2>
       <div id="pLines"></div>
       <div class="two"><div class="field" style="margin:0"><label>Pelanggan</label><select class="input" id="pCust"><option value="">Umum</option>${S.customers.filter(c => c.name !== "Umum").map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select></div>
-      <div class="field" style="margin:0"><label>Jenis</label><select class="input" id="pType"><option>Pre-Order</option><option>Ready Stock</option><option>Titip Beli</option></select></div></div>
+      <div class="field" style="margin:0"><label>Jenis</label><select class="input" id="pType"><option>Jastip</option><option>Ready Stock</option></select></div></div>
       <input class="input" id="pName" list="custList" autocomplete="off" placeholder="Atau ketik nama pelanggan baru (otomatis tersimpan)"><datalist id="custList">${S.customers.filter(c => c.name !== "Umum").map(c => `<option value="${esc(c.name)}">`).join("")}</datalist>
       <div class="two"><div class="field" style="margin:0"><label>Diskon (${esc(S.settings.currency)})</label><input class="input" type="number" min="0" id="pDisc" placeholder="0"></div>
       <div class="field" style="margin:0"><label>Catatan</label><input class="input" id="pNote"></div></div>
@@ -716,10 +721,36 @@ function openPOS(edit) {
   $$("#aCode,#aName,#aPrice,#aDp,#aQty,#aCost", m).forEach(el => el.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); addManual(); } }));
 
   /* keranjang */
+  /* ready stock: ambil dari inventory */
+  let inv = [];
+  const oldQty = id => edit ? edit.items.filter(i => i.inv_id == id).reduce((a, i) => a + i.qty, 0) : 0;
+  const availFor = id => ((inv.find(x => x.id == id) || {}).qty || 0) + oldQty(id);
+  const isReady = () => $("#pType", m).value === "Ready Stock";
+  let lastType = "Jastip";
+  function renderInv() {
+    const q = $("#iQ", m).value.toLowerCase();
+    const list = inv.filter(x => (x.name + " " + x.code).toLowerCase().includes(q));
+    $("#iGrid", m).innerHTML = list.map(x => {
+      const left = availFor(x.id) - cart.filter(l => l.inv_id == x.id).reduce((a, l) => a + l.qty, 0);
+      return `<button class="pitem" data-iv="${x.id}" ${left <= 0 ? 'disabled style="opacity:.45"' : ""}>${x.code ? `<b>${esc(x.code)}</b>` : ""}<em class="pn">${esc(x.name)}</em><span>${fmt(x.price)}</span><small>${left <= 0 ? "Stok habis" : "Stok " + left}</small>${x.country ? cBadge(x.country) : ""}</button>`;
+    }).join("") || `<div style="grid-column:1/-1">${emptyBox(inv.length ? "Produk tidak ditemukan." : "Inventory masih kosong. Admin bisa mengisinya di menu Inventory.")}</div>`;
+    $$("[data-iv]", m).forEach(b => b.onclick = () => {
+      const x = inv.find(v => v.id === +b.dataset.iv), ex = cart.find(l => l.inv_id === x.id);
+      if (ex) ex.qty++; else cart.push({ inv_id: x.id, name: x.name, price: x.price, dp: 0, cost: 0, qty: 1, country: x.country || "", code: x.code || "" });
+      renderLines(); renderTotals(); renderInv();
+    });
+  }
+  $("#iQ", m).oninput = renderInv;
+  const applyMode = () => { $("#jBox", m).classList.toggle("hidden", isReady()); $("#rBox", m).classList.toggle("hidden", !isReady()); };
+  $("#pType", m).onchange = () => {
+    if (cart.length && !confirm("Ganti jenis order akan mengosongkan keranjang. Lanjut?")) { $("#pType", m).value = lastType; return; }
+    cart.length = 0; lastType = $("#pType", m).value; applyMode(); renderLines(); renderTotals(); renderInv();
+  };
+  api("GET", "/api/inventory").then(r => { inv = r; renderInv(); renderLines(); }).catch(() => { });
   function renderLines() {
     $("#cCount", m).textContent = cart.length;
     $("#pLines", m).innerHTML = cart.length ? cart.map((l, i) => `<div class="cline" data-i="${i}">
-      <div class="cl-top"><span>${l.country ? cBadge(l.country) + " " : ""}${l.code ? `<b>${esc(l.code)}</b> ` : ""}<span class="cl-name">${esc(l.name)}</span></span><button class="x" data-rm="${i}" title="Hapus">×</button></div>
+      <div class="cl-top"><span>${l.country ? cBadge(l.country) + " " : ""}${l.code ? `<b>${esc(l.code)}</b> ` : ""}<span class="cl-name">${esc(l.name)}</span>${l.inv_id ? ` <small class="muted">· stok ${availFor(l.inv_id)}</small>` : ""}</span><button class="x" data-rm="${i}" title="Hapus">×</button></div>
       <div class="cl-grid"><label>Harga<input type="number" min="0" data-f="price" value="${l.price}"></label><label>DP / item<input type="number" min="0" data-f="dp" value="${l.dp || ""}" placeholder="0"></label><label>Qty<input type="number" min="1" data-f="qty" value="${l.qty}"></label></div>
       <div class="muted sm" data-sum>${fmt(l.price * l.qty)}${l.dp ? ` · DP ${fmt(l.dp * l.qty)}` : ""}</div></div>`).join("")
       : emptyBox("Keranjang masih kosong");
@@ -728,6 +759,7 @@ function openPOS(edit) {
       const l = cart[+row.dataset.i];
       $$("input", row).forEach(inp => inp.oninput = () => {
         l[inp.dataset.f] = inp.dataset.f === "qty" ? Math.max(1, +inp.value || 1) : Math.max(0, +inp.value || 0);
+        if (l.inv_id && inp.dataset.f === "qty" && l.qty > availFor(l.inv_id)) { l.qty = Math.max(1, availFor(l.inv_id)); inp.value = l.qty; toast("Qty melebihi stok inventory", true); }
         $("[data-sum]", row).textContent = `${fmt(l.price * l.qty)}${l.dp ? ` · DP ${fmt(l.dp * l.qty)}` : ""}`;
         renderTotals();
       });
@@ -776,7 +808,7 @@ function openPOS(edit) {
     if (edit) {
       if (!cart.length) return toast("Keranjang masih kosong", true);
       const o = await api("PUT", "/api/orders/" + edit.id, {
-        items: cart.map(l => ({ name: l.name, price: l.price, dp: Math.min(l.dp, l.price), cost: l.cost, qty: l.qty, country: l.country || "", code: l.code || "" })),
+        items: cart.map(l => ({ name: l.name, price: l.price, dp: Math.min(l.dp, l.price), cost: l.cost, qty: l.qty, country: l.country || "", code: l.code || "", inv_id: l.inv_id || null })),
         customer_id: $("#pCust", m).value || null, customer_name: $("#pName", m).value, type: $("#pType", m).value,
         discount: +$("#pDisc", m).value || 0, note: $("#pNote", m).value,
       });
@@ -787,7 +819,7 @@ function openPOS(edit) {
     if (!cart.length) return toast("Keranjang masih kosong", true);
     if (md === "dp" && amt <= 0) return toast("Isi nominal DP, atau pilih Belum bayar", true);
     const body = {
-      items: cart.map(l => ({ name: l.name, price: l.price, dp: Math.min(l.dp, l.price), cost: l.cost, qty: l.qty, country: l.country || "", code: l.code || "" })),
+      items: cart.map(l => ({ name: l.name, price: l.price, dp: Math.min(l.dp, l.price), cost: l.cost, qty: l.qty, country: l.country || "", code: l.code || "", inv_id: l.inv_id || null })),
       customer_id: $("#pCust", m).value || null, customer_name: $("#pName", m).value, type: $("#pType", m).value,
       discount: +$("#pDisc", m).value || 0, note: $("#pNote", m).value,
       paid: md === "lunas", dp: md === "dp" ? amt : 0, method: md === "nanti" ? "" : pay.method, cash_received: md === "nanti" ? 0 : +pay.cash || 0,
@@ -797,11 +829,11 @@ function openPOS(edit) {
     if (S.view === "order") await loadOrders(); refreshSummary(); openInvoice(o.id);
   });
   if (edit) {
-    edit.items.forEach(i => cart.push({ name: i.name, price: i.price, dp: i.dp || 0, cost: i.cost || 0, qty: i.qty, country: i.country || "", code: i.code || "" }));
+    edit.items.forEach(i => cart.push({ inv_id: i.inv_id || null, name: i.name, price: i.price, dp: i.dp || 0, cost: i.cost || 0, qty: i.qty, country: i.country || "", code: i.code || "" }));
     $("#pCust", m).value = edit.customer_id || "";
     if (!edit.customer_id && edit.customer_name && edit.customer_name !== "Umum") $("#pName", m).value = edit.customer_name;
-    if (![...$("#pType", m).options].some(o => o.value === edit.type)) $("#pType", m).add(new Option(edit.type, edit.type));
-    $("#pType", m).value = edit.type; $("#pDisc", m).value = edit.discount || ""; $("#pNote", m).value = edit.note || "";
+    $("#pType", m).value = edit.type === "Ready Stock" ? "Ready Stock" : "Jastip"; lastType = $("#pType", m).value; applyMode();
+    $("#pType", m).disabled = true; $("#pDisc", m).value = edit.discount || ""; $("#pNote", m).value = edit.note || "";
   }
   renderMaster(); renderLines(); renderTotals(); $("#aCode", m).focus();
 }
@@ -971,6 +1003,63 @@ function productForm(p = {}) {
   });
 }
 
+/* ============ inventory (stok ready stock) ============ */
+async function vInventory() {
+  if (!isAdmin()) return $("#view").innerHTML = emptyBox("Menu ini khusus admin.");
+  const list = await api("GET", "/api/inventory");
+  $("#topActions").innerHTML = `<div class="searchbox">${svg("search")}<input class="input" id="vQ" placeholder="Cari kode / deskripsi"></div><select class="input" id="vC" style="width:auto"><option value="">Semua negara</option>${countries().map(c => `<option>${esc(c)}</option>`).join("")}</select><button class="btn" id="vNew">+ Tambah Item</button>`;
+  $("#vNew").onclick = () => invForm();
+  const draw = () => {
+    const q = ($("#vQ").value || "").toLowerCase(), c = $("#vC").value;
+    const l = list.filter(x => (x.name + " " + x.code).toLowerCase().includes(q) && (!c || x.country === c));
+    const qty = list.reduce((a, x) => a + x.qty, 0), modal = list.reduce((a, x) => a + x.qty * x.cost, 0), jual = list.reduce((a, x) => a + x.qty * x.price, 0);
+    $("#view").innerHTML = `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin-bottom:12px">
+      <div class="card"><div class="muted sm">Jumlah item</div><b style="font-size:22px">${list.length}</b></div>
+      <div class="card"><div class="muted sm">Total stok (pcs)</div><b style="font-size:22px">${qty.toLocaleString("id-ID")}</b></div>
+      <div class="card"><div class="muted sm">Modal tertanam di stok</div><b style="font-size:22px">${fmt(modal)}</b></div>
+      <div class="card"><div class="muted sm">Potensi penjualan</div><b style="font-size:22px">${fmt(jual)}</b><div class="muted sm">Potensi laba ${fmt(jual - modal)}</div></div></div>
+    ` + (l.length ? `<div class="table-wrap"><table><tr><th>Negara</th><th>Kode</th><th>Deskripsi</th><th class="num">Stok</th><th class="num">Modal</th><th class="num">Harga jual</th><th class="num">Laba/item</th><th></th></tr>
+    ${l.map(x => `<tr><td>${x.country ? cBadge(x.country) : "-"}</td><td><b>${esc(x.code || "-")}</b></td><td>${esc(x.name)}</td>
+      <td class="num"><b style="${x.qty <= 0 ? "color:var(--accent)" : x.qty <= 3 ? "color:#b45309" : ""}">${x.qty}</b>${x.qty <= 0 ? " <small>habis</small>" : x.qty <= 3 ? " <small>menipis</small>" : ""}</td>
+      <td class="num">${fmt(x.cost)}</td><td class="num">${fmt(x.price)}</td><td class="num">${fmt(x.price - x.cost)}</td>
+      <td class="num"><button class="btn sm" data-s="${x.id}">± Stok</button> <button class="btn sec sm" data-e="${x.id}">Edit</button> <button class="btn danger sm" data-d="${x.id}">Hapus</button></td></tr>`).join("")}</table></div>`
+      : emptyBox("Inventory masih kosong. Klik + Tambah Item untuk mencatat stok ready stock pertamamu ✿"));
+    $$("[data-s]").forEach(b => b.onclick = () => stockForm(list.find(x => x.id === +b.dataset.s)));
+    $$("[data-e]").forEach(b => b.onclick = () => invForm(list.find(x => x.id === +b.dataset.e)));
+    $$("[data-d]").forEach(b => b.onclick = guard(async () => { if (confirm("Hapus item dari inventory? Invoice lama tetap aman.")) { await api("DELETE", "/api/inventory/" + b.dataset.d); vInventory(); } }));
+  };
+  $("#vQ").oninput = draw; $("#vC").onchange = draw; draw();
+}
+function invForm(x = {}) {
+  const m = openModal(`<h3>${x.id ? "Edit" : "Tambah"} Item Inventory ♡</h3>
+    <div class="two"><div class="field"><label>Negara asal</label><select class="input" id="gCountry">${countryOptions(x.country || "")}</select></div>
+    <div class="field"><label>Kode produk</label><input class="input" id="gCode" value="${esc(x.code || "")}" placeholder="mis. AGGU001"></div></div>
+    <div class="field"><label>Deskripsi</label><input class="input" id="gName" value="${esc(x.name || "")}" placeholder="mis. Sticker Sanrio Set"></div>
+    <div class="${x.id ? "two" : "three"}"><div class="field"><label>Harga beli / modal</label><input class="input" type="number" min="0" id="gCost" value="${x.cost ?? ""}"></div>
+    <div class="field"><label>Harga jual</label><input class="input" type="number" min="0" id="gPrice" value="${x.price ?? ""}"></div>
+    ${x.id ? "" : `<div class="field"><label>Stok awal</label><input class="input" type="number" min="0" id="gQty" value="0"></div>`}</div>
+    <div class="field"><label>Catatan</label><input class="input" id="gNote" value="${esc(x.note || "")}"></div>
+    <div class="row" style="margin-top:12px"><button class="btn" id="gSave">Simpan</button><button class="btn sec" id="gCancel">Batal</button></div>`);
+  $("#gCancel", m).onclick = closeModal;
+  $("#gSave", m).onclick = guard(async () => {
+    const b = { country: $("#gCountry", m).value, code: $("#gCode", m).value, name: $("#gName", m).value, cost: $("#gCost", m).value, price: $("#gPrice", m).value, note: $("#gNote", m).value, qty: $("#gQty", m)?.value || 0 };
+    if (x.id) await api("PUT", "/api/inventory/" + x.id, b); else await api("POST", "/api/inventory", b);
+    closeModal(); toast("Inventory disimpan"); vInventory();
+  });
+}
+function stockForm(x) {
+  const m = openModal(`<h3>Ubah Stok ♡</h3><p style="margin:0 0 10px"><b>${esc(x.code || "")}</b> ${esc(x.name)}<br><span class="muted">Stok sekarang: <b>${x.qty}</b></span></p>
+    <div class="two"><div class="field"><label>Tambah / kurangi (pakai minus)</label><input class="input" type="number" id="sDelta" placeholder="mis. 10 atau -2"></div>
+    <div class="field"><label>Alasan</label><select class="input" id="sReason"><option>Tambah stok</option><option>Koreksi stok</option><option>Rusak / hilang</option></select></div></div>
+    <div class="field"><label>Harga beli / modal baru (opsional, kosongkan kalau tidak berubah)</label><input class="input" type="number" min="0" id="sCost" placeholder="${x.cost}"></div>
+    <div class="row" style="margin-top:12px"><button class="btn" id="sSave">Simpan</button><button class="btn sec" id="sCancel">Batal</button></div>`);
+  $("#sCancel", m).onclick = closeModal;
+  $("#sSave", m).onclick = guard(async () => {
+    await api("POST", `/api/inventory/${x.id}/stock`, { delta: $("#sDelta", m).value, reason: $("#sReason", m).value, cost: $("#sCost", m).value });
+    closeModal(); toast("Stok diperbarui"); vInventory();
+  });
+}
+
 /* ============ pelanggan ============ */
 async function vCustomers() {
   try { const r = await api("POST", "/api/customers/sync", {}); if (r.added) { toast(`${r.added} pelanggan diambil dari riwayat order`); await refreshProducts(); } } catch (e) {}
@@ -999,28 +1088,207 @@ function customerForm(c = {}) {
 }
 
 /* ============ keuangan ============ */
-let finMonth = todayStr().slice(0, 7);
+/* ============ file Excel (.xlsx) tanpa library ============ */
+const XLSX_CRC = (() => { const t = []; for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+const crc32 = u8 => { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = XLSX_CRC[(c ^ u8[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+function makeXlsx(sheets) {
+  const enc = new TextEncoder();
+  const xe = t => String(t).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "").replace(/[<>&"]/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
+  const col = i => { let s = "", n = i + 1; while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); } return s; };
+  const files = [];
+  const add = (name, text) => files.push([name, enc.encode(text)]);
+  add("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("")}</Types>`);
+  add("_rels/.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`);
+  add("xl/workbook.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheets.map((s, i) => `<sheet name="${xe(s.name.slice(0, 31))}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("")}</sheets></workbook>`);
+  add("xl/_rels/workbook.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join("")}<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`);
+  add("xl/styles.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEE3A82"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`);
+  sheets.forEach((s, si) => {
+    const rows = s.rows.map((r, ri) => `<row r="${ri + 1}">${r.map((v, ci) => {
+      const ref = col(ci) + (ri + 1);
+      if (v === null || v === undefined || v === "") return "";
+      if (typeof v === "number" && Number.isFinite(v)) return `<c r="${ref}" s="${s.header !== false && ri === 0 ? 1 : 2}"><v>${v}</v></c>`;
+      return `<c r="${ref}" t="inlineStr"${s.header !== false && ri === 0 ? ' s="1"' : ""}><is><t xml:space="preserve">${xe(v)}</t></is></c>`;
+    }).join("")}</row>`).join("");
+    add(`xl/worksheets/sheet${si + 1}.xml`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0">${s.header !== false ? '<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>' : ""}</sheetView></sheetViews><cols>${(s.widths || []).map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join("")}</cols><sheetData>${rows}</sheetData></worksheet>`);
+  });
+  // zip tanpa kompresi
+  const parts = [], central = []; let off = 0;
+  const u16 = n => [n & 255, (n >> 8) & 255], u32 = n => [n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255];
+  for (const [name, data] of files) {
+    const nm = enc.encode(name), crc = crc32(data);
+    const lh = new Uint8Array([...u32(0x04034b50), ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0x21), ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(nm.length), ...u16(0), ...nm]);
+    parts.push(lh, data);
+    central.push(new Uint8Array([...u32(0x02014b50), ...u16(20), ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0x21), ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(nm.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(off), ...nm]));
+    off += lh.length + data.length;
+  }
+  const cl = central.reduce((a, c) => a + c.length, 0);
+  const end = new Uint8Array([...u32(0x06054b50), ...u16(0), ...u16(0), ...u16(files.length), ...u16(files.length), ...u32(cl), ...u32(off), ...u16(0)]);
+  return new Blob([...parts, ...central, end], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+}
+function downloadXlsx(filename, sheets) {
+  const a = document.createElement("a"); a.href = URL.createObjectURL(makeXlsx(sheets)); a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+}
+
+/* ============ rekap order (tabel + Excel) ============ */
+let rk = { month: todayStr().slice(0, 7), type: "", status: "", q: "" };
+const payLabel = r => r.status === "batal" ? "Batal" : r.paid ? "Lunas" : r.paid_amount > 0 ? "DP" : "Belum bayar";
+async function vRekap() {
+  const [y, mo] = rk.month.split("-").map(Number);
+  const rows = await api("GET", `/api/order-rows?from=${rk.month}-01&to=${todayStr(new Date(y, mo, 0))}`);
+  $("#topActions").innerHTML = `<input type="month" class="input" id="kMonth" value="${rk.month}" style="width:auto">
+    <select class="input" id="kType" style="width:auto"><option value="">Semua jenis</option><option>Jastip</option><option>Ready Stock</option></select>
+    <select class="input" id="kStat" style="width:auto"><option value="">Semua pembayaran</option><option>Belum bayar</option><option>DP</option><option>Lunas</option><option>Batal</option></select>
+    <div class="searchbox">${svg("search")}<input class="input" id="kQ" placeholder="Cari invoice / pelanggan / produk" value="${esc(rk.q)}"></div><button class="btn" id="kXls">Unduh Excel</button>`;
+  $("#kType").value = rk.type; $("#kStat").value = rk.status;
+  const view = () => rows.filter(r => (!rk.type || (rk.type === "Ready Stock" ? r.type === "Ready Stock" : r.type !== "Ready Stock")) && (!rk.status || payLabel(r) === rk.status)
+    && (!rk.q || [r.number, r.customer_name, r.name, r.code].join(" ").toLowerCase().includes(rk.q.toLowerCase())));
+  const adm = isAdmin();
+  const draw = () => {
+    const l = view(), live = l.filter(r => r.status !== "batal");
+    const sum = live.reduce((a, r) => a + r.qty * r.price, 0), qty = live.reduce((a, r) => a + r.qty, 0);
+    let last = "";
+    $("#view").innerHTML = `<p class="muted" style="margin:0 0 10px">${l.length} baris produk · ${qty} pcs · total ${fmt(sum)} (order batal tidak dihitung)</p>` + (l.length ? `<div class="table-wrap"><table>
+      <tr><th>Tanggal</th><th>Invoice</th><th>Pelanggan</th><th>Jenis</th><th>Negara</th><th>Kode</th><th>Deskripsi</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Subtotal</th>${adm ? '<th class="num">Modal</th>' : ""}<th>Pembayaran</th></tr>
+      ${l.map(r => { const first = r.number !== last; last = r.number; return `<tr style="${first ? "" : "opacity:.92"}"><td>${first ? r.created_at.slice(0, 10) : ""}</td><td>${first ? `<b>${esc(r.number)}</b>` : ""}</td><td>${first ? esc(r.customer_name) : ""}</td><td>${first ? esc(r.type === "Ready Stock" ? "Ready Stock" : "Jastip") : ""}</td>
+      <td>${r.country ? cBadge(r.country) : "-"}</td><td><b>${esc(r.code || "-")}</b></td><td>${esc(r.name)}</td><td class="num">${r.qty}</td><td class="num">${fmt(r.price)}</td><td class="num">${fmt(r.qty * r.price)}</td>${adm ? `<td class="num">${fmt(r.cost * r.qty)}</td>` : ""}<td>${first ? payLabel(r) : ""}</td></tr>`; }).join("")}</table></div>`
+      : emptyBox("Belum ada order di bulan ini dengan filter tersebut ✿"));
+  };
+  $("#kMonth").onchange = e => { rk.month = e.target.value || rk.month; vRekap(); };
+  $("#kType").onchange = e => { rk.type = e.target.value; draw(); }; $("#kStat").onchange = e => { rk.status = e.target.value; draw(); };
+  $("#kQ").oninput = e => { rk.q = e.target.value; draw(); };
+  $("#kXls").onclick = () => {
+    const l = view(); let last = "";
+    const head = ["Tanggal", "No. Invoice", "Pelanggan", "Jenis", "Negara", "Kode", "Deskripsi", "Qty", "Harga", "DP/item", "Subtotal", ...(adm ? ["Modal/item", "Laba"] : []), "Pembayaran", "Total invoice", "Dibayar"];
+    const data = l.map(r => { const first = r.number !== last; last = r.number; return [r.created_at.slice(0, 10), r.number, r.customer_name, r.type === "Ready Stock" ? "Ready Stock" : "Jastip", r.country || "", r.code || "", r.name, r.qty, r.price, r.dp || 0, r.qty * r.price, ...(adm ? [r.cost, r.qty * (r.price - r.cost)] : []), payLabel(r), first ? r.total : "", first ? r.paid_amount : ""]; });
+    downloadXlsx(`rekap-order-${rk.month}.xlsx`, [{ name: "Rekap Order", rows: [head, ...data], widths: [12, 16, 20, 12, 10, 12, 34, 6, 12, 10, 14, ...(adm ? [12, 14] : []), 14, 14, 14] }]);
+  };
+  draw();
+}
+
+/* ============ keuangan ============ */
+let finYear = new Date().getFullYear(), finTab = "ringkasan";
+const MONTHS_ID = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+const shortNum = n => { const a = Math.abs(n); return (n < 0 ? "-" : "") + (a >= 1e6 ? (a / 1e6).toFixed(a >= 1e7 ? 0 : 1).replace(".0", "") + "jt" : a >= 1e3 ? Math.round(a / 1e3) + "rb" : a); };
+function yearChart(months) {
+  const W = 720, H = 270, pl = 46, pr = 8, pt = 14, pb = 28;
+  const max = Math.max(1, ...months.flatMap(x => [x.rev, x.hpp + x.ops, x.net])), min = Math.min(0, ...months.map(x => x.net));
+  const y = v => pt + (H - pt - pb) * (1 - (v - min) / (max - min)), gw = (W - pl - pr) / 12, bw = gw * 0.3;
+  const ticks = [0, 1, 2, 3, 4].map(i => min + (max - min) * i / 4);
+  const pts = months.map((x, i) => `${(pl + gw * i + gw / 2).toFixed(1)},${y(x.net).toFixed(1)}`);
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img" aria-label="Grafik keuangan 12 bulan">
+    ${ticks.map(t => `<line x1="${pl}" x2="${W - pr}" y1="${y(t)}" y2="${y(t)}" stroke="var(--border)" stroke-dasharray="3 4"/><text x="${pl - 6}" y="${y(t) + 4}" text-anchor="end" font-size="11" fill="var(--muted)">${shortNum(Math.round(t))}</text>`).join("")}
+    <line x1="${pl}" x2="${W - pr}" y1="${y(0)}" y2="${y(0)}" stroke="var(--text)" stroke-width="1"/>
+    ${months.map((x, i) => { const gx = pl + gw * i; return `<g><title>${MONTHS_ID[i]}: penjualan ${fmt(x.rev)}, modal+operasional ${fmt(x.hpp + x.ops)}, laba bersih ${fmt(x.net)}</title>
+      <rect x="${gx + gw * 0.15}" y="${y(x.rev)}" width="${bw}" height="${Math.max(0, y(0) - y(x.rev))}" rx="3" fill="var(--primary)"/>
+      <rect x="${gx + gw * 0.15 + bw + 2}" y="${y(x.hpp + x.ops)}" width="${bw}" height="${Math.max(0, y(0) - y(x.hpp + x.ops))}" rx="3" fill="color-mix(in srgb,var(--text) 38%,var(--card))"/>
+      <text x="${gx + gw / 2}" y="${H - 8}" text-anchor="middle" font-size="11" fill="var(--muted)">${MONTHS_ID[i]}</text></g>`; }).join("")}
+    <polyline points="${pts.join(" ")}" fill="none" stroke="#0f766e" stroke-width="2.5" stroke-linejoin="round"/>
+    ${months.map((x, i) => `<circle cx="${pl + gw * i + gw / 2}" cy="${y(x.net)}" r="3.5" fill="#0f766e"/>`).join("")}</svg>
+    <div class="row" style="gap:16px;flex-wrap:wrap;font-size:12px;margin-top:4px"><span><i style="display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--primary)"></i> Penjualan lunas</span><span><i style="display:inline-block;width:10px;height:10px;border-radius:3px;background:color-mix(in srgb,var(--text) 38%,var(--card))"></i> Modal barang + operasional</span><span><i style="display:inline-block;width:14px;height:3px;background:#0f766e"></i> Laba bersih</span></div>`;
+}
 async function vFinance() {
-  const [y, mo] = finMonth.split("-").map(Number); const from = `${finMonth}-01`; const to = todayStr(new Date(y, mo, 0));
-  const [r, ex] = await Promise.all([api("GET", `/api/report?from=${from}&to=${to}`), api("GET", `/api/expenses?from=${from}&to=${to}`)]);
-  $("#topActions").innerHTML = `<input type="month" class="input" id="fMonth" value="${finMonth}" style="width:auto"><button class="btn" id="fNew">+ Catat Pengeluaran</button>`;
-  $("#fMonth").onchange = e => { finMonth = e.target.value || finMonth; vFinance(); };
-  $("#fNew").onclick = () => expenseForm();
-  $("#view").innerHTML = `<div class="grid cards4">
-    <div class="card stat"><small>Pemasukan (uang diterima, termasuk DP)</small><b style="color:var(--ok)">${fmt(r.paid_total)}</b></div>
-    <div class="card stat"><small>Sisa tagihan (piutang)</small><b style="color:var(--warn)">${fmt(r.unpaid_total)}</b></div>
-    <div class="card stat"><small>Modal barang terjual</small><b>${fmt(r.cogs)}</b></div>
-    <div class="card stat"><small>Pengeluaran</small><b style="color:var(--danger)">${fmt(r.expenses)}</b></div>
-    <div class="card stat pk"><small>Laba bersih (kas)</small><b>${fmt(r.net_profit)}</b></div></div>
-    <h2 style="margin-top:18px">Daftar pengeluaran</h2>
-    <div class="table-wrap"><table><tr><th>Tanggal</th><th>Kategori</th><th>Keterangan</th><th class="num">Nominal</th><th>Dicatat</th><th></th></tr>
-    ${ex.map(e => `<tr><td>${e.date}</td><td>${esc(e.category)}</td><td>${esc(e.description)}</td><td class="num">${fmt(e.amount)}</td><td>${esc(e.cashier)}</td><td class="num">${isAdmin() ? `<button class="btn danger sm" data-d="${e.id}">Hapus</button>` : ""}</td></tr>`).join("") || '<tr><td colspan="6" class="muted">Belum ada pengeluaran bulan ini.</td></tr>'}</table></div>`;
-  $$("[data-d]").forEach(b => b.onclick = guard(async () => { if (confirm("Hapus pengeluaran ini?")) { await api("DELETE", "/api/expenses/" + b.dataset.d); vFinance(); } }));
+  if (!isAdmin()) return $("#view").innerHTML = emptyBox("Menu ini khusus admin.");
+  const f = await api("GET", "/api/finance?year=" + finYear), P = f.pot;
+  const tabs = [["ringkasan", "Ringkasan"], ["bulanan", "Per Bulan"], ["modal", "Modal"], ["gaji", "Gaji"], ["pengeluaran", "Pengeluaran"]];
+  $("#topActions").innerHTML = `<select class="input" id="fYear" style="width:auto">${[...new Set([...f.years, String(new Date().getFullYear())])].sort().map(y => `<option ${+y === finYear ? "selected" : ""}>${y}</option>`).join("")}</select>`
+    + (finTab === "modal" ? `<button class="btn" id="fAct">+ Setor Modal</button>` : finTab === "pengeluaran" ? `<button class="btn" id="fAct">+ Catat Pengeluaran</button>` : finTab === "bulanan" ? `<button class="btn" id="fAct">Unduh Excel</button>` : finTab === "gaji" ? `<button class="btn sec" id="fAct">Atur pembagian</button>` : "");
+  $("#fYear").onchange = e => { finYear = +e.target.value; vFinance(); };
+  const bar = `<div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:14px">${tabs.map(([k, l]) => `<button class="btn ${k === finTab ? "" : "sec"} sm" data-t="${k}">${l}</button>`).join("")}</div>`;
+  let body = "";
+  const stat = (l, v, sub, cls = "") => `<div class="card stat ${cls}"><small>${l}</small><b>${fmt(v)}</b>${sub ? `<small>${sub}</small>` : ""}</div>`;
+  if (finTab === "ringkasan") {
+    const tot = f.months.reduce((a, x) => ({ rev: a.rev + x.rev, net: a.net + x.net, ops: a.ops + x.ops, hpp: a.hpp + x.hpp }), { rev: 0, net: 0, ops: 0, hpp: 0 });
+    const cmax = Math.max(1, ...f.by_country.map(x => x.revenue));
+    body = (f.warn.no_cost ? `<div class="card" style="border-color:var(--accent);margin-bottom:12px">⚠ Ada <b>${f.warn.no_cost}</b> item order yang modalnya belum diisi (Rp 0), jadi laba terlihat lebih besar dari sebenarnya. Isi kolom Modal saat input order jastip.</div>` : "")
+      + `<div class="grid cards4">${stat("Total uang di tangan (estimasi)", P.total_kas, "modal tersedia + laba belum dibagi", "pk")}${stat("Modal tersedia (estimasi)", P.modal_tersedia, `Modal disetor ${fmt(P.setoran)}`)}
+      ${stat("Laba belum dibagi", P.kas_laba, `Gaji sudah dibayar ${fmt(P.gaji_dibayar)}`)}${stat("DP customer (tertahan)", P.dp_tertahan, `${P.open_orders} order belum lunas`)}
+      ${stat("Modal tertanam", P.stok + P.hpp_open, `Stok ${fmt(P.stok)} · jastip berjalan ${fmt(P.hpp_open)}`)}${stat("Piutang (sisa tagihan)", P.piutang, "")}</div>
+      <div class="card" style="margin-top:14px"><h2>Grafik ${f.year}</h2>${yearChart(f.months)}
+        <p class="muted sm" style="margin:8px 0 0">Penjualan ${fmt(tot.rev)} · Modal barang ${fmt(tot.hpp)} · Operasional ${fmt(tot.ops)} · <b>Laba bersih ${fmt(tot.net)}</b></p></div>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr));margin-top:14px">
+        <div class="card"><h2>Penjualan per negara ${f.year}</h2>${f.by_country.length ? f.by_country.map(x => `<div style="margin:8px 0"><div class="row" style="justify-content:space-between"><span>${x.country === "-" ? "Tanpa negara" : cBadge(x.country)}</span><b>${fmt(x.revenue)}</b></div><div style="height:8px;border-radius:6px;background:var(--primary-soft);margin-top:4px"><div style="height:8px;border-radius:6px;background:var(--primary);width:${Math.max(3, x.revenue / cmax * 100)}%"></div></div></div>`).join("") : '<p class="muted">Belum ada data.</p>'}</div>
+        <div class="card"><h2>Produk terlaris ${f.year}</h2>${f.top.length ? `<table><tr><th>Produk</th><th class="num">Terjual</th><th class="num">Omset</th></tr>${f.top.map(x => `<tr><td><b>${esc(x.code || "")}</b> ${esc(x.name)}</td><td class="num">${x.qty}</td><td class="num">${fmt(x.revenue)}</td></tr>`).join("")}</table>` : '<p class="muted">Belum ada data.</p>'}</div></div>
+      <details class="card" style="margin-top:14px"><summary><b>Cara hitung angka-angka ini</b></summary><div class="muted sm" style="margin-top:8px;line-height:1.6">
+        • <b>Laba</b> baru dihitung saat order <b>LUNAS</b> (bukan saat DP): penjualan lunas − modal barang − pengeluaran operasional.<br>
+        • <b>Modal tersedia</b> = modal disetor + tambahan modal − modal tertanam di stok − modal jastip yang belum lunas + DP customer yang sudah masuk.<br>
+        • <b>Laba belum dibagi</b> = laba bersih − tambahan modal − gaji yang sudah dibayar.<br>
+        • Angka ini estimasi dari data yang kamu catat. Pembelian barang tidak dicatat sebagai pengeluaran, jadi pastikan modal tiap item terisi.</div></details>`;
+  } else if (finTab === "bulanan") {
+    const sum = k => f.months.reduce((a, x) => a + x[k], 0);
+    body = `<div class="table-wrap"><table><tr><th>Bulan</th><th class="num">Order lunas</th><th class="num">Uang masuk</th><th class="num">Penjualan lunas</th><th class="num">Modal barang</th><th class="num">Operasional</th><th class="num">Laba bersih</th>${f.people.map(p => `<th class="num">${esc(p.name)} ${p.pct}%</th>`).join("")}</tr>
+      ${f.months.map((x, i) => `<tr><td><b>${MONTHS_ID[i]}</b></td><td class="num">${x.orders}</td><td class="num">${fmt(x.cash_in)}</td><td class="num">${fmt(x.rev)}</td><td class="num">${fmt(x.hpp)}</td><td class="num">${fmt(x.ops)}</td><td class="num"><b style="color:${x.net < 0 ? "var(--accent)" : "inherit"}">${fmt(x.net)}</b></td>${x.shares.map(v => `<td class="num">${fmt(v)}</td>`).join("")}</tr>`).join("")}
+      <tr><td><b>Total ${f.year}</b></td><td class="num"><b>${sum("orders")}</b></td><td class="num"><b>${fmt(sum("cash_in"))}</b></td><td class="num"><b>${fmt(sum("rev"))}</b></td><td class="num"><b>${fmt(sum("hpp"))}</b></td><td class="num"><b>${fmt(sum("ops"))}</b></td><td class="num"><b>${fmt(sum("net"))}</b></td>${f.people.map((_, j) => `<td class="num"><b>${fmt(f.months.reduce((a, x) => a + x.shares[j], 0))}</b></td>`).join("")}</tr></table></div>
+      <p class="muted sm">Uang masuk = semua pembayaran yang diterima di bulan itu (termasuk DP). Penjualan lunas dihitung di bulan order dilunasi.</p>`;
+  } else if (finTab === "modal") {
+    body = `<div class="grid cards4">${stat("Total modal disetor", P.setoran, "")}${stat("Tambahan modal dari laba", P.tambah_modal, f.capital_pct ? `${f.capital_pct}% dari laba bersih` : "belum diaktifkan (0%)")}${stat("Modal tersedia (estimasi)", P.modal_tersedia, "", "pk")}${stat("Modal tertanam", P.stok + P.hpp_open, "stok + jastip berjalan")}</div>
+      <h2 style="margin-top:18px">Riwayat setoran modal</h2>${f.capital.length ? `<div class="table-wrap"><table><tr><th>Tanggal</th><th>Pihak</th><th class="num">Nominal</th><th>Catatan</th><th></th></tr>${f.capital.map(r => `<tr><td>${r.date}</td><td>${esc(r.party)}</td><td class="num">${fmt(r.amount)}</td><td>${esc(r.note)}</td><td class="num"><button class="btn danger sm" data-cd="${r.id}">Hapus</button></td></tr>`).join("")}</table></div>` : emptyBox("Belum ada setoran modal. Klik + Setor Modal (mis. Pihak 1 Rp 1.000.000).")}
+      <p class="muted sm">Isi nominal minus untuk penarikan modal.</p>`;
+  } else if (finTab === "gaji") {
+    body = `<p class="muted" style="margin:0 0 10px">Hak gaji dihitung dari <b>laba bersih penjualan yang sudah lunas</b> (setelah operasional), bukan dari modal. Hak terus bertambah dan kamu catat kapan pun gaji dibayarkan.${f.capital_pct ? ` ${f.capital_pct}% laba disisihkan jadi tambahan modal.` : ""}</p>
+      <div class="grid cards4">${f.payroll.map(p => `<div class="card stat"><small>${esc(p.name)} · ${p.pct}%</small><b>${fmt(p.sisa)}</b><small>Hak ${fmt(p.hak)} · dibayar ${fmt(p.paid)}</small><button class="btn sm" data-pay="${esc(p.name)}" style="margin-top:8px">Catat bayar</button></div>`).join("")}</div>
+      <h2 style="margin-top:18px">Riwayat pembayaran gaji</h2>${f.payments.length ? `<div class="table-wrap"><table><tr><th>Tanggal</th><th>Penerima</th><th class="num">Nominal</th><th>Catatan</th><th></th></tr>${f.payments.map(r => `<tr><td>${r.date}</td><td>${esc(r.person)}</td><td class="num">${fmt(r.amount)}</td><td>${esc(r.note)}</td><td class="num"><button class="btn danger sm" data-pd="${r.id}">Hapus</button></td></tr>`).join("")}</table></div>` : emptyBox("Belum ada pembayaran gaji.")}`;
+  } else {
+    const ex = await api("GET", `/api/expenses?from=${f.year}-01-01&to=${f.year}-12-31`);
+    body = `<p class="muted" style="margin:0 0 10px">Pengeluaran operasional (ongkir, packing, dll) dipotong dari laba. Pembelian barang tidak perlu dicatat di sini.</p>` + (ex.length ? `<div class="table-wrap"><table><tr><th>Tanggal</th><th>Kategori</th><th>Keterangan</th><th class="num">Nominal</th><th>Dicatat</th><th></th></tr>${ex.map(e => `<tr><td>${e.date}</td><td>${esc(e.category)}</td><td>${esc(e.description)}</td><td class="num">${fmt(e.amount)}</td><td>${esc(e.cashier)}</td><td class="num"><button class="btn danger sm" data-ed="${e.id}">Hapus</button></td></tr>`).join("")}</table></div>` : emptyBox("Belum ada pengeluaran di tahun ini."));
+  }
+  $("#view").innerHTML = bar + body;
+  $$("[data-t]").forEach(b => b.onclick = () => { finTab = b.dataset.t; vFinance(); });
+  $$("[data-cd]").forEach(b => b.onclick = guard(async () => { if (confirm("Hapus setoran modal ini?")) { await api("DELETE", "/api/capital/" + b.dataset.cd); vFinance(); } }));
+  $$("[data-pd]").forEach(b => b.onclick = guard(async () => { if (confirm("Hapus catatan pembayaran gaji ini?")) { await api("DELETE", "/api/payroll/" + b.dataset.pd); vFinance(); } }));
+  $$("[data-ed]").forEach(b => b.onclick = guard(async () => { if (confirm("Hapus pengeluaran ini?")) { await api("DELETE", "/api/expenses/" + b.dataset.ed); vFinance(); } }));
+  $$("[data-pay]").forEach(b => b.onclick = () => payrollForm(b.dataset.pay, f.payroll.find(p => p.name === b.dataset.pay)));
+  const act = $("#fAct");
+  if (act) act.onclick = () => {
+    if (finTab === "modal") capitalForm(f.people);
+    else if (finTab === "pengeluaran") expenseForm();
+    else if (finTab === "gaji") shareForm(f);
+    else downloadXlsx(`keuangan-${f.year}.xlsx`, [
+      { name: "Per Bulan", rows: [["Bulan", "Order lunas", "Uang masuk", "Penjualan lunas", "Modal barang", "Laba kotor", "Operasional", "Laba bersih", ...f.people.map(p => `${p.name} ${p.pct}%`)], ...f.months.map((x, i) => [`${MONTHS_ID[i]} ${f.year}`, x.orders, x.cash_in, x.rev, x.hpp, x.gross, x.ops, x.net, ...x.shares])], widths: [14, 12, 14, 16, 14, 14, 14, 14, 16, 16, 16] },
+      { name: "Gaji", rows: [["Nama", "Persen", "Hak gaji", "Sudah dibayar", "Sisa"], ...f.payroll.map(p => [p.name, p.pct, p.hak, p.paid, p.sisa])], widths: [16, 8, 16, 16, 16] },
+      { name: "Modal", rows: [["Tanggal", "Pihak", "Nominal", "Catatan"], ...f.capital.map(r => [r.date, r.party, r.amount, r.note])], widths: [12, 18, 16, 30] }]);
+  };
+}
+function capitalForm(people) {
+  const m = openModal(`<h3>Setor Modal ♡</h3>
+    <div class="two"><div class="field"><label>Tanggal</label><input type="date" class="input" id="cDate" value="${todayStr()}"></div>
+    <div class="field"><label>Pihak</label><input class="input" id="cParty" list="cParties" placeholder="mis. Pihak 1"><datalist id="cParties"><option>Pihak 1</option><option>Pihak 2</option>${people.map(p => `<option>${esc(p.name)}</option>`).join("")}</datalist></div></div>
+    <div class="field"><label>Nominal (minus = penarikan modal)</label><input class="input" type="number" id="cAmt" placeholder="1000000"></div>
+    <div class="field"><label>Catatan</label><input class="input" id="cNote"></div>
+    <div class="row"><button class="btn" id="cSave">Simpan</button><button class="btn sec" id="cCancel">Batal</button></div>`);
+  $("#cCancel", m).onclick = closeModal;
+  $("#cSave", m).onclick = guard(async () => { await api("POST", "/api/capital", { date: $("#cDate", m).value, party: $("#cParty", m).value, amount: $("#cAmt", m).value, note: $("#cNote", m).value }); closeModal(); toast("Modal dicatat"); vFinance(); });
+}
+function payrollForm(person, p) {
+  const m = openModal(`<h3>Catat Gaji ${esc(person)} ♡</h3><p class="muted" style="margin:0 0 10px">Sisa hak gaji saat ini: <b>${fmt(p ? p.sisa : 0)}</b></p>
+    <div class="two"><div class="field"><label>Tanggal bayar</label><input type="date" class="input" id="gDate" value="${todayStr()}"></div>
+    <div class="field"><label>Nominal dibayar</label><input class="input" type="number" min="1" id="gAmt" value="${p && p.sisa > 0 ? p.sisa : ""}"></div></div>
+    <div class="field"><label>Catatan</label><input class="input" id="gNote"></div>
+    <div class="row"><button class="btn" id="gSave">Simpan</button><button class="btn sec" id="gCancel">Batal</button></div>`);
+  $("#gCancel", m).onclick = closeModal;
+  $("#gSave", m).onclick = guard(async () => { await api("POST", "/api/payroll", { date: $("#gDate", m).value, person, amount: $("#gAmt", m).value, note: $("#gNote", m).value }); closeModal(); toast("Pembayaran gaji dicatat"); vFinance(); });
+}
+function shareForm(f) {
+  const m = openModal(`<h3>Atur Pembagian Gaji ♡</h3><p class="muted" style="margin:0 0 10px">Persen dari laba bersih. Total sebaiknya 100% (kalau ada sisihan modal, total + persen modal = 100%).</p>
+    ${f.people.map((p, i) => `<div class="two"><div class="field"><label>Nama ${i + 1}</label><input class="input" data-n="${i}" value="${esc(p.name)}"></div><div class="field"><label>Persen</label><input class="input" type="number" min="0" max="100" step="0.5" data-p="${i}" value="${p.pct}"></div></div>`).join("")}
+    <div class="field"><label>Tambahan modal dari laba (%)</label><input class="input" type="number" min="0" max="100" step="0.5" id="hCap" value="${f.capital_pct}"></div>
+    <p class="muted sm" id="hSum"></p>
+    <div class="row"><button class="btn" id="hSave">Simpan</button><button class="btn sec" id="hCancel">Batal</button></div>`);
+  const sum = () => { const t = $$("[data-p]", m).reduce((a, i) => a + (+i.value || 0), 0) + (+$("#hCap", m).value || 0); $("#hSum", m).innerHTML = `Total: <b style="color:${Math.abs(t - 100) < 0.01 ? "var(--ok)" : "var(--accent)"}">${t}%</b>`; };
+  $$("input", m).forEach(i => i.oninput = sum); sum();
+  $("#hCancel", m).onclick = closeModal;
+  $("#hSave", m).onclick = guard(async () => {
+    const people = f.people.map((_, i) => ({ name: $(`[data-n="${i}"]`, m).value.trim(), pct: +$(`[data-p="${i}"]`, m).value || 0 }));
+    if (people.some(p => !p.name)) return toast("Nama tidak boleh kosong", true);
+    const t = people.reduce((a, p) => a + p.pct, 0) + (+$("#hCap", m).value || 0);
+    if (Math.abs(t - 100) > 0.01 && !confirm(`Total persen ${t}%, bukan 100%. Tetap simpan?`)) return;
+    await api("PUT", "/api/settings", { pay_people: people, capital_pct: +$("#hCap", m).value || 0 });
+    closeModal(); toast("Pembagian disimpan"); vFinance();
+  });
 }
 function expenseForm() {
   const m = openModal(`<h3>Catat Pengeluaran ♡</h3>
     <div class="two"><div class="field"><label>Tanggal</label><input type="date" class="input" id="eDate" value="${todayStr()}"></div>
-    <div class="field"><label>Kategori</label><input class="input" id="eCat" list="ecats" value="Beli barang jastip"><datalist id="ecats"><option>Beli barang jastip</option><option>Ongkir / kargo</option><option>Packing</option><option>Operasional</option><option>Pengembalian DP</option><option>Lain-lain</option></datalist></div></div>
+    <div class="field"><label>Kategori</label><input class="input" id="eCat" list="ecats" value="Operasional"><datalist id="ecats"><option>Ongkir / kargo</option><option>Packing</option><option>Operasional</option><option>Pengembalian DP</option><option>Lain-lain</option></datalist></div></div>
     <div class="field"><label>Keterangan</label><input class="input" id="eDesc"></div>
     <div class="field"><label>Nominal</label><input class="input" type="number" id="eAmt"></div>
     <div class="row"><button class="btn" id="eSave">Simpan</button><button class="btn sec" id="eCancel">Batal</button></div>`);
