@@ -751,7 +751,7 @@ function openPOS(edit) {
     $("#cCount", m).textContent = cart.length;
     $("#pLines", m).innerHTML = cart.length ? cart.map((l, i) => `<div class="cline" data-i="${i}">
       <div class="cl-top"><span>${l.country ? cBadge(l.country) + " " : ""}${l.code ? `<b>${esc(l.code)}</b> ` : ""}<span class="cl-name">${esc(l.name)}</span>${l.inv_id ? ` <small class="muted">· stok ${availFor(l.inv_id)}</small>` : ""}</span><button class="x" data-rm="${i}" title="Hapus">×</button></div>
-      <div class="cl-grid"><label>Harga<input type="number" min="0" data-f="price" value="${l.price}"></label><label>DP / item<input type="number" min="0" data-f="dp" value="${l.dp || ""}" placeholder="0"></label><label>Qty<input type="number" min="1" data-f="qty" value="${l.qty}"></label></div>
+      <div class="cl-grid"${isAdmin() && !l.inv_id ? ' style="grid-template-columns:1.3fr 1fr .7fr 1fr"' : ""}><label>Harga<input type="number" min="0" data-f="price" value="${l.price}"></label><label>DP / item<input type="number" min="0" data-f="dp" value="${l.dp || ""}" placeholder="0"></label><label>Qty<input type="number" min="1" data-f="qty" value="${l.qty}"></label>${isAdmin() && !l.inv_id ? `<label>Modal / item<input type="number" min="0" data-f="cost" value="${l.cost || ""}" placeholder="0"></label>` : ""}</div>
       <div class="muted sm" data-sum>${fmt(l.price * l.qty)}${l.dp ? ` · DP ${fmt(l.dp * l.qty)}` : ""}</div></div>`).join("")
       : emptyBox("Keranjang masih kosong");
     $$("[data-rm]", m).forEach(b => b.onclick = () => { cart.splice(+b.dataset.rm, 1); renderLines(); renderTotals(); });
@@ -833,7 +833,11 @@ function openPOS(edit) {
     $("#pCust", m).value = edit.customer_id || "";
     if (!edit.customer_id && edit.customer_name && edit.customer_name !== "Umum") $("#pName", m).value = edit.customer_name;
     $("#pType", m).value = edit.type === "Ready Stock" ? "Ready Stock" : "Jastip"; lastType = $("#pType", m).value; applyMode();
-    $("#pType", m).disabled = true; $("#pDisc", m).value = edit.discount || ""; $("#pNote", m).value = edit.note || "";
+    $("#pType", m).disabled = true;
+    // modal yang masih kosong di invoice lama diisi dari master (kode + deskripsi sama persis)
+    let filled = 0;
+    cart.forEach(l => { if (!l.inv_id && !l.cost) { const pm = S.products.find(x => x.name.toLowerCase() === l.name.toLowerCase() && (x.code || "") === (l.code || "")); if (pm && pm.cost) { l.cost = pm.cost; filled++; } } });
+    if (filled && isAdmin()) toast(`${filled} produk: modal diisi otomatis dari master. Cek lalu simpan perubahan.`); $("#pDisc", m).value = edit.discount || ""; $("#pNote", m).value = edit.note || "";
   }
   renderMaster(); renderLines(); renderTotals(); $("#aCode", m).focus();
 }
