@@ -111,7 +111,7 @@ h2:before{content:"♡ ";color:var(--primary)}
 .empty{text-align:center;padding:26px 10px;color:var(--muted)}
 .empty img{width:120px;height:120px;border-radius:50%;border:2px solid var(--ink);margin-bottom:8px}
 /* kanban */
-.board{display:grid;grid-template-columns:repeat(4,minmax(250px,1fr));gap:14px;align-items:start;overflow-x:auto;padding:2px 2px 10px}
+.board{display:grid;grid-template-columns:repeat(5,minmax(250px,1fr));gap:14px;align-items:start;overflow-x:auto;padding:2px 2px 10px}
 .col{background:color-mix(in srgb,var(--primary) 7%,var(--card));border:2px solid var(--ink);border-radius:var(--radius);padding:12px;min-height:240px}
 .col.over{outline:3px dashed var(--primary)}
 .col-h{display:flex;align-items:center;gap:8px;font-weight:700;margin-bottom:12px}
@@ -230,7 +230,7 @@ input[type=color]{width:100%;height:38px;padding:2px;border:2px solid var(--ink)
   aside.open{left:0}
   .menu-toggle{display:inline-block}
   .pos{grid-template-columns:1fr}
-  .board{grid-template-columns:repeat(4,265px)}
+  .board{grid-template-columns:repeat(5,265px)}
   .two,.three,.four{grid-template-columns:1fr 1fr}
   .topbar,.content{padding-left:14px;padding-right:14px}
   .login-card{grid-template-columns:1fr}
@@ -587,6 +587,12 @@ function payBadge(o) {
 }
 function renderBoard() {
   const b = $("#board"); if (!b) return;
+  const bl = ORDERS.filter(o => o.status === "batal");
+  const batalCol = `<div class="col" data-s="batal"><div class="col-h"><span class="dot" style="background:#9ca3af"></span>Dibatalkan<span class="cnt">${bl.length}</span></div>
+    ${bl.map(o => `<div class="ocard" data-id="${o.id}" style="opacity:.72"><div class="no" style="text-decoration:line-through">${esc(o.number)}</div>
+      <div class="meta">${svg("user")}<span>${esc(o.customer_name)}</span></div><div class="meta">${svg("clock")}<span>${timeLabel(o.created_at)}</span></div>
+      <div class="meta">${svg("bag")}<span>${esc(o.preview || "")}</span></div><div class="price">${fmt(o.total)}</div>
+      <div class="foot"><span class="meta" style="margin:0">${esc(o.type)}</span><span class="badge">Batal</span></div></div>`).join("") || `<p class="muted" style="text-align:center;font-size:12px">Tidak ada ✿</p>`}</div>`;
   b.innerHTML = COLS.map(([k, l, color, pg]) => {
     const list = ORDERS.filter(o => o.status === k);
     return `<div class="col" data-s="${k}"><div class="col-h"><span class="dot" style="background:${color}"></span>${l}<span class="cnt">${list.length}</span></div>
@@ -601,16 +607,17 @@ function renderBoard() {
       <div class="foot"><span class="meta" style="margin:0">${esc(o.type)}</span>${k !== "selesai" ? `<button class="adv" data-adv="${o.id}">Lanjut ▸</button>` : ""}</div>
       <div class="prog"><i style="width:${pg}%;background:${color}"></i></div></div>`).join("") || `<p class="muted" style="text-align:center;font-size:12px">Kosong ✿</p>`}
     </div>`;
-  }).join("");
+  }).join("") + batalCol;
   $$(".ocard", b).forEach(c => {
     c.onclick = e => { if (e.target.closest("[data-adv]")) return; openInvoice(+c.dataset.id); };
-    c.ondragstart = e => { e.dataTransfer.setData("text/plain", c.dataset.id); };
+    if (c.draggable) c.ondragstart = e => { e.dataTransfer.setData("text/plain", c.dataset.id); };
   });
   $$("[data-adv]", b).forEach(btn => btn.onclick = guard(async () => {
     const o = ORDERS.find(x => x.id === +btn.dataset.adv); const i = COLS.findIndex(c => c[0] === o.status);
     await api("PUT", "/api/orders/" + o.id, { status: COLS[i + 1][0] }); await loadOrders(); refreshSummary();
   }));
   $$(".col", b).forEach(col => {
+    if (col.dataset.s === "batal") return;
     col.ondragover = e => { e.preventDefault(); col.classList.add("over"); };
     col.ondragleave = () => col.classList.remove("over");
     col.ondrop = guard(async e => {
