@@ -665,6 +665,7 @@ function openPOS(edit) {
       <div id="pLines"></div>
       <div class="two"><div class="field" style="margin:0"><label>Pelanggan</label><select class="input" id="pCust"><option value="">Umum</option>${S.customers.filter(c => c.name !== "Umum").map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select></div>
       <div class="field" style="margin:0"><label>Jenis</label><select class="input" id="pType"><option>Jastip</option><option>Ready Stock</option></select></div></div>
+      <div class="field" style="margin:0"><label>Tanggal invoice <span class="muted sm">(ubah kalau memasukkan order lama)</span></label><input type="date" class="input" id="pDate" value="${todayStr()}" max="${todayStr()}"></div>
       <input class="input" id="pName" list="custList" autocomplete="off" placeholder="Atau ketik nama pelanggan baru (otomatis tersimpan)"><datalist id="custList">${S.customers.filter(c => c.name !== "Umum").map(c => `<option value="${esc(c.name)}">`).join("")}</datalist>
       <div class="two"><div class="field" style="margin:0"><label>Diskon (${esc(S.settings.currency)})</label><input class="input" type="number" min="0" id="pDisc" placeholder="0"></div>
       <div class="field" style="margin:0"><label>Catatan</label><input class="input" id="pNote"></div></div>
@@ -817,7 +818,7 @@ function openPOS(edit) {
       const o = await api("PUT", "/api/orders/" + edit.id, {
         items: cart.map(l => ({ name: l.name, price: l.price, dp: Math.min(l.dp, l.price), cost: l.cost, qty: l.qty, country: l.country || "", code: l.code || "", inv_id: l.inv_id || null })),
         customer_id: $("#pCust", m).value || null, customer_name: $("#pName", m).value, type: $("#pType", m).value,
-        discount: +$("#pDisc", m).value || 0, note: $("#pNote", m).value,
+        discount: +$("#pDisc", m).value || 0, note: $("#pNote", m).value, order_date: $("#pDate", m).value || null,
       });
       toast(`Invoice ${o.number} diperbarui`); await refreshProducts(); closeModal();
       if (S.view === "order") await loadOrders(); refreshSummary(); return openInvoice(o.id);
@@ -828,7 +829,7 @@ function openPOS(edit) {
     const body = {
       items: cart.map(l => ({ name: l.name, price: l.price, dp: Math.min(l.dp, l.price), cost: l.cost, qty: l.qty, country: l.country || "", code: l.code || "", inv_id: l.inv_id || null })),
       customer_id: $("#pCust", m).value || null, customer_name: $("#pName", m).value, type: $("#pType", m).value,
-      discount: +$("#pDisc", m).value || 0, note: $("#pNote", m).value,
+      discount: +$("#pDisc", m).value || 0, note: $("#pNote", m).value, order_date: $("#pDate", m).value || null,
       paid: md === "lunas", dp: md === "dp" ? amt : 0, method: md === "nanti" ? "" : pay.method, cash_received: md === "nanti" ? 0 : +pay.cash || 0,
     };
     const o = await api("POST", "/api/orders", body);
@@ -840,7 +841,7 @@ function openPOS(edit) {
     $("#pCust", m).value = edit.customer_id || "";
     if (!edit.customer_id && edit.customer_name && edit.customer_name !== "Umum") $("#pName", m).value = edit.customer_name;
     $("#pType", m).value = edit.type === "Ready Stock" ? "Ready Stock" : "Jastip"; lastType = $("#pType", m).value; applyMode();
-    $("#pType", m).disabled = true;
+    $("#pType", m).disabled = true; $("#pDate", m).value = edit.created_at.slice(0, 10);
     // modal yang masih kosong di invoice lama diisi dari master (kode + deskripsi sama persis)
     let filled = 0;
     cart.forEach(l => { if (!l.inv_id && !l.cost) { const pm = S.products.find(x => x.name.toLowerCase() === l.name.toLowerCase() && (x.code || "") === (l.code || "")); if (pm && pm.cost) { l.cost = pm.cost; filled++; } } });
@@ -921,7 +922,7 @@ function waText(o) {
 }
 const openInvoice = guard(async (id) => {
   let o = await api("GET", "/api/orders/" + id);
-  let payMethod = (S.settings.payment_methods || ["Tunai"])[0]; let payAmt = null;
+  let payMethod = (S.settings.payment_methods || ["Tunai"])[0]; let payAmt = null; let payDate = todayStr();
   const draw = () => {
     const nextI = COLS.findIndex(c => c[0] === o.status);
     const remaining = o.total - o.paid_amount;
@@ -933,6 +934,7 @@ const openInvoice = guard(async (id) => {
         <div class="chips" style="margin:8px 0">${(S.settings.payment_methods || ["Tunai"]).map(x => `<span class="chip ${x === payMethod ? "on" : ""}" data-pm="${esc(x)}">${esc(x)}</span>`).join("")}</div>
         <div class="two"><div class="field" style="margin:0"><label>${canDp ? "Nominal DP diterima" : "Nominal diterima"}</label><input class="input" type="number" id="iAmt" value="${payAmt ?? sugg}"></div>
         ${payMethod === "Tunai" ? `<div class="field" style="margin:0"><label>Uang diterima (opsional)</label><input class="input" type="number" id="iCash"></div>` : "<div></div>"}</div>
+        <div class="field" style="margin:8px 0 0"><label>Tanggal diterima</label><input type="date" class="input" id="iPayDate" value="${payDate}" max="${todayStr()}" style="max-width:200px"></div>
         <div class="row" style="margin-top:10px">${canDp || o.paid_amount > 0 ? `<button class="btn" id="iPartial">${canDp ? "✓ Tandai DP diterima" : "✓ Catat cicilan"}</button>` : ""}<button class="btn ok" id="iLunas">✓ Tandai LUNAS${o.paid_amount > 0 || canDp ? ` (${fmt(remaining)})` : ""}</button></div></div>` : ""}
       <div class="row">
         <button class="btn" id="iPrint">Cetak Struk 80mm</button><button class="btn sec" id="iPrintA">Cetak Invoice A5/A4</button><button class="btn sec" id="iPng">Unduh PNG</button><button class="btn sec" id="iWa">Salin teks WhatsApp</button>
@@ -942,11 +944,11 @@ const openInvoice = guard(async (id) => {
         ${isAdmin() ? `<button class="btn danger sm" id="iDel">Hapus</button>` : ""}
       </div>`, "mid");
     $("#iClose", m).onclick = closeModal;
-    $$("[data-pm]", m).forEach(c => c.onclick = () => { payAmt = $("#iAmt", m)?.value ?? null; payMethod = c.dataset.pm; draw(); });
-    const upd = guard(async (b) => { o = await api("PUT", "/api/orders/" + id, b); payAmt = null; await refreshProducts(); if (S.view === "order") loadOrders(); refreshSummary(); draw(); });
+    $$("[data-pm]", m).forEach(c => c.onclick = () => { payAmt = $("#iAmt", m)?.value ?? null; payDate = $("#iPayDate", m)?.value || payDate; payMethod = c.dataset.pm; draw(); });
+    const upd = guard(async (b) => { o = await api("PUT", "/api/orders/" + id, b); payAmt = null; payDate = todayStr(); await refreshProducts(); if (S.view === "order") loadOrders(); refreshSummary(); draw(); });
     const cash = () => +($("#iCash", m)?.value || 0);
-    $("#iPartial", m)?.addEventListener("click", () => { const a = +($("#iAmt", m).value || 0); if (a <= 0) return toast("Isi nominal yang diterima", true); upd({ pay_amount: a, method: payMethod, cash_received: cash() }); });
-    $("#iLunas", m)?.addEventListener("click", () => upd({ pay_amount: remaining, method: payMethod, cash_received: cash() }));
+    $("#iPartial", m)?.addEventListener("click", () => { const a = +($("#iAmt", m).value || 0); if (a <= 0) return toast("Isi nominal yang diterima", true); upd({ pay_amount: a, method: payMethod, cash_received: cash(), pay_date: $("#iPayDate", m).value }); });
+    $("#iLunas", m)?.addEventListener("click", () => upd({ pay_amount: remaining, method: payMethod, cash_received: cash(), pay_date: $("#iPayDate", m).value }));
     $("#iEdit", m)?.addEventListener("click", () => { closeModal(); openPOS(o); });
     $("#iNext", m)?.addEventListener("click", () => upd({ status: COLS[nextI + 1][0] }));
     $("#iCancel", m)?.addEventListener("click", () => { if (confirm("Batalkan order ini?")) upd({ status: "batal" }); });

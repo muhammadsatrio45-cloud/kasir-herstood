@@ -7,6 +7,14 @@ const J = (o, status = 200, extra = {}) => new Response(JSON.stringify(o), { sta
 const WIB = 7 * 3600e3; // semua tanggal memakai WIB
 const nowIso = () => new Date(Date.now() + WIB).toISOString().slice(0, 19).replace("T", " ");
 const todayWib = () => nowIso().slice(0, 10);
+// tanggal yang dipilih admin/kasir (YYYY-MM-DD) dipakai sebagai tanggal transaksi; jamnya mengikuti jam sekarang
+function stampFor(d) {
+  if (!d) return nowIso();
+  d = String(d).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || isNaN(Date.parse(d))) throw new ApiError("Format tanggal tidak valid");
+  if (d > todayWib()) throw new ApiError("Tanggal tidak boleh di masa depan");
+  return d + nowIso().slice(10);
+}
 const addDays = (ymd, n) => new Date(Date.parse(ymd + "T00:00:00Z") + n * 864e5).toISOString().slice(0, 10);
 const SESSION_DAYS = 30, MAX_FAILS = 5, LOCK_SECONDS = 300, PBKDF2_ITER = 100000;
 
@@ -318,15 +326,14 @@ function paymentPlan(total, paidAmount, amount, method, cash) {
   const newPaid = paidAmount + amount, full = newPaid >= total ? 1 : 0;
   return { kind, newPaid, full };
 }
-const paymentStmts = (env, oid, total, paidAmount, amount, method, cash, cashier) => {
-  const p = paymentPlan(total, paidAmount, amount, method, cash), t = nowIso();
+const paymentStmts = (env, oid, total, paidAmount, amount, method, cash, cashier, t = nowIso()) => {
+  const p = paymentPlan(total, paidAmount, amount, method, cash);
   return [
     st(env, "INSERT INTO payments(order_id,amount,method,kind,cash_received,cashier,created_at) VALUES(?,?,?,?,?,?,?)", oid, amount, method, p.kind, method === "Tunai" ? cash : 0, cashier, t),
     st(env, "UPDATE orders SET paid_amount=?, paid=?, method=?, paid_at=CASE WHEN ?=1 THEN ? ELSE paid_at END WHERE id=?", p.newPaid, p.full, method, p.full, t, oid),
   ];
 };
-async function nextNumber(env, prefix) {
-  const year = todayWib().slice(0, 4);
+async function nextNumber(env, prefix, year = todayWib().slice(0, 4)) {
   const last = await one(env, "SELECT number FROM orders WHERE number LIKE ? ORDER BY id DESC LIMIT 1", `${prefix}-${year}-%`);
   let n = 1;
   if (last) { const x = parseInt(String(last.number).split("-").pop(), 10); n = Number.isFinite(x) ? x + 1 : 1; }
@@ -347,19 +354,19 @@ async function hOrderCreate(c) {
   let custId = b.customer_id || null, custName = "Umum";
   if (custId) { const cu = await one(env, "SELECT name FROM customers WHERE id=?", custId); if (cu) custName = cu.name; else custId = null; }
   if (b.customer_name && !custId) { custName = String(b.customer_name).trim() || "Umum"; custId = await ensureCustomer(env, custName); }
-  const note = String(b.note || "").trim(), cashier = c.user.name;
+  const note = String(b.note || "").trim(), cashier = c.user.name, stamp = stampFor(b.order_date);
   for (let attempt = 0; attempt < 4; attempt++) {
-    const number = await nextNumber(env, s.invoice_prefix || "INV");
+    const number = await nextNumber(env, s.invoice_prefix || "INV", stamp.slice(0, 4));
     const oidSql = "(SELECT id FROM orders WHERE number=?)";
     const stmts = [st(env, "INSERT INTO orders(number,customer_id,customer_name,type,status,paid,method,subtotal,discount,tax,total,cash_received,note,cashier,created_at,paid_at,dp_target) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-      number, custId, custName, type, "baru", 0, "", subtotal, discount, tax, total, 0, note, cashier, nowIso(), null, dpTarget)];
+      number, custId, custName, type, "baru", 0, "", subtotal, discount, tax, total, 0, note, cashier, stamp, null, dpTarget)];
     for (const l of lines) stmts.push(...itemStmts(env, l, oidSql, number, number));
     try { await env.DB.batch(stmts); } catch (e) { if (/UNIQUE/i.test(String(e)) && attempt < 3) continue; throw e; }
     const oid = (await one(env, "SELECT id FROM orders WHERE number=?", number)).id;
     if (paidFull) {
-      if (total > 0) await env.DB.batch(paymentStmts(env, oid, total, 0, total, method, cash, cashier));
-      else await run(env, "UPDATE orders SET paid=1, paid_at=? WHERE id=?", nowIso(), oid);
-    } else if (dp > 0) await env.DB.batch(paymentStmts(env, oid, total, 0, dp, method, cash, cashier));
+      if (total > 0) await env.DB.batch(paymentStmts(env, oid, total, 0, total, method, cash, cashier, stamp));
+      else await run(env, "UPDATE orders SET paid=1, paid_at=? WHERE id=?", stamp, oid);
+    } else if (dp > 0) await env.DB.batch(paymentStmts(env, oid, total, 0, dp, method, cash, cashier, stamp));
     return loadOrder(env, oid);
   }
   throw new ApiError("Gagal membuat nomor invoice, coba lagi", 409);
@@ -397,9 +404,15 @@ async function hOrderUpdate(c, id) {
     const remaining = total - o.paid_amount;
     if (remaining <= 0) throw new ApiError("Order sudah lunas");
     const amount = b.pay_amount !== undefined && b.pay_amount !== null ? toInt(b.pay_amount) : remaining;
-    stmts.push(...paymentStmts(env, id, total, o.paid_amount, amount, String(b.method || "Tunai"), toInt(b.cash_received), c.user.name));
+    stmts.push(...paymentStmts(env, id, total, o.paid_amount, amount, String(b.method || "Tunai"), toInt(b.cash_received), c.user.name, stampFor(b.pay_date)));
   }
   if (status === "batal" && o.status !== "batal") stmts.push(...restoreStmts(env, o.items, o.number, "order dibatalkan"));
+  if (b.order_date && String(b.order_date).slice(0, 10) !== o.created_at.slice(0, 10)) {
+    // pindahkan tanggal invoice; pembayaran & pelunasan yang tanggalnya sama dengan invoice ikut pindah
+    const ns = stampFor(b.order_date), od = o.created_at.slice(0, 10);
+    stmts.push(st(env, "UPDATE orders SET created_at=?, paid_at=CASE WHEN paid_at IS NOT NULL AND date(paid_at)=? THEN ? ELSE paid_at END WHERE id=?", ns, od, ns, id));
+    stmts.push(st(env, "UPDATE payments SET created_at=? WHERE order_id=? AND date(created_at)=?", ns, id, od));
+  }
   const note = "note" in b ? String(b.note).trim() : o.note;
   stmts.push(st(env, "UPDATE orders SET status=?,note=? WHERE id=?", status, note, id));
   await env.DB.batch(stmts);
