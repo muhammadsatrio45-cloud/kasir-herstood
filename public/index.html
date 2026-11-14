@@ -1033,8 +1033,11 @@ async function vInventory() {
     ${l.map(x => `<tr><td>${x.country ? cBadge(x.country) : "-"}</td><td><b>${esc(x.code || "-")}</b></td><td>${esc(x.name)}</td>
       <td class="num"><b style="${x.qty <= 0 ? "color:var(--accent)" : x.qty <= 3 ? "color:#b45309" : ""}">${x.qty}</b>${x.qty <= 0 ? " <small>habis</small>" : x.qty <= 3 ? " <small>menipis</small>" : ""}</td>
       <td class="num">${fmt(x.cost)}</td><td class="num">${fmt(x.price)}</td><td class="num">${fmt(x.price - x.cost)}</td>
-      <td class="num"><button class="btn sm" data-s="${x.id}">± Stok</button> <button class="btn sec sm" data-e="${x.id}">Edit</button> <button class="btn danger sm" data-d="${x.id}">Hapus</button></td></tr>`).join("")}</table></div>`
+      <td class="num">${x.legacy_qty ? `<button class="btn ok sm" data-l="${x.id}" title="Ada order Ready Stock lama yang belum tertaut">Tarik order lama (${x.legacy_qty})</button> ` : ""}<button class="btn sm" data-s="${x.id}">± Stok</button> <button class="btn sec sm" data-e="${x.id}">Edit</button> <button class="btn danger sm" data-d="${x.id}">Hapus</button></td></tr>`).join("")}</table></div>`
       : emptyBox("Inventory masih kosong. Klik + Tambah Item untuk mencatat stok ready stock pertamamu ✿"));
+    $$("[data-l]").forEach(b => b.onclick = guard(async () => { const x = list.find(v => v.id === +b.dataset.l);
+      if (!confirm(`Tarik ${x.legacy_qty} pcs dari order Ready Stock lama untuk ${x.code} ${x.name}?\nStok sekarang ${x.qty} akan jadi ${x.qty - x.legacy_qty}, dan modal order lama diisi dari Inventory.\n\nJangan lanjut kalau stok yang kamu isi sudah stok sisa (setelah dikurangi penjualan lama).`)) return;
+      const r = await api("POST", `/api/inventory/${x.id}/link-old`, {}); toast(`${r.linked} order lama ditarik (${r.qty} pcs)`); vInventory(); }));
     $$("[data-s]").forEach(b => b.onclick = () => stockForm(list.find(x => x.id === +b.dataset.s)));
     $$("[data-e]").forEach(b => b.onclick = () => invForm(list.find(x => x.id === +b.dataset.e)));
     $$("[data-d]").forEach(b => b.onclick = guard(async () => { if (confirm("Hapus item dari inventory? Invoice lama tetap aman.")) { await api("DELETE", "/api/inventory/" + b.dataset.d); vInventory(); } }));
@@ -1050,12 +1053,28 @@ function invForm(x = {}) {
     <div class="field"><label>Harga jual</label><input class="input" type="number" min="0" id="gPrice" value="${x.price ?? ""}"></div>
     ${x.id ? "" : `<div class="field"><label>Stok awal</label><input class="input" type="number" min="0" id="gQty" value="0"></div>`}</div>
     <div class="field"><label>Catatan</label><input class="input" id="gNote" value="${esc(x.note || "")}"></div>
+    ${x.id ? "" : `<div class="card" id="gLegacyBox" style="display:none;margin-top:8px"><label style="display:flex;gap:8px;align-items:flex-start"><input type="checkbox" id="gLegacy" checked><span id="gLegacyInfo"></span></label></div>`}
     <div class="row" style="margin-top:12px"><button class="btn" id="gSave">Simpan</button><button class="btn sec" id="gCancel">Batal</button></div>`);
   $("#gCancel", m).onclick = closeModal;
+  let legacy = { qty: 0 }, lt;
+  const chkLegacy = () => { clearTimeout(lt); lt = setTimeout(guard(async () => {
+    const n = $("#gName", m).value.trim(); if (!n || x.id) return;
+    legacy = await api("GET", `/api/inventory/legacy?name=${encodeURIComponent(n)}&code=${encodeURIComponent($("#gCode", m).value.trim())}`);
+    const box = $("#gLegacyBox", m), q = +$("#gQty", m).value || 0;
+    box.style.display = legacy.qty ? "" : "none";
+    $("#gLegacyInfo", m).innerHTML = `Ditemukan <b>${legacy.orders} order Ready Stock lama</b> dengan produk ini (total <b>${legacy.qty} pcs</b> terjual). Centang untuk <b>mengurangi stok otomatis</b> (stok jadi <b>${q - legacy.qty}</b>) dan mengisi modal order lama. Jangan dicentang kalau stok yang kamu isi sudah stok sisa.`;
+  }), 350); };
+  if (!x.id) ["#gName", "#gCode", "#gQty"].forEach(sel => $(sel, m).addEventListener("input", chkLegacy));
   $("#gSave", m).onclick = guard(async () => {
     const b = { country: $("#gCountry", m).value, code: $("#gCode", m).value, name: $("#gName", m).value, cost: $("#gCost", m).value, price: $("#gPrice", m).value, note: $("#gNote", m).value, qty: $("#gQty", m)?.value || 0 };
-    if (x.id) await api("PUT", "/api/inventory/" + x.id, b); else await api("POST", "/api/inventory", b);
-    closeModal(); toast("Inventory disimpan"); vInventory();
+    let linked = null;
+    if (x.id) await api("PUT", "/api/inventory/" + x.id, b);
+    else {
+      if ($("#gLegacy", m)?.checked && legacy.qty && (+b.qty || 0) < legacy.qty) return toast(`Stok awal (${+b.qty || 0}) lebih kecil dari yang terjual di order lama (${legacy.qty}). Isi total pembelian, atau hilangkan centangnya.`, true);
+      const created = await api("POST", "/api/inventory", b);
+      if ($("#gLegacy", m)?.checked && legacy.qty) linked = await api("POST", `/api/inventory/${created.id}/link-old`, {});
+    }
+    closeModal(); toast(linked ? `Inventory disimpan. ${linked.linked} order lama ditarik (${linked.qty} pcs)` : "Inventory disimpan"); vInventory();
   });
 }
 function stockForm(x) {

@@ -150,13 +150,35 @@ async function hCustomerUpdate(c, id) {
 const hCustomerDelete = async (c, id) => { await run(c.env, "DELETE FROM customers WHERE id=?", id); return { ok: true }; };
 
 /* ---------- inventory (stok ready stock, direkap manual) ---------- */
-const invClean = (c, rows) => { if (c.user.role !== "admin") for (const r of rows) delete r.cost; return rows; };
+const invClean = (c, rows) => { if (c.user.role !== "admin") for (const r of rows) { delete r.cost; delete r.legacy_qty; } return rows; };
+const LEGACY_W = "oi.inv_id IS NULL AND o.status!='batal' AND o.type='Ready Stock' AND lower(oi.name)=lower(?) AND oi.code=?";
 function invPayload(b) {
   const name = String(b.name || "").split(/\s+/).filter(Boolean).join(" ");
   if (!name) throw new ApiError("Deskripsi produk wajib diisi");
   return { name, code: String(b.code || "").trim().toUpperCase().slice(0, 30), country: String(b.country || "").trim().slice(0, 30), cost: Math.max(0, toInt(b.cost)), price: Math.max(0, toInt(b.price)), note: String(b.note || "").trim() };
 }
-const hInvList = async c => invClean(c, await all(c.env, "SELECT * FROM inventory WHERE active=1 ORDER BY name, code"));
+const hInvList = async c => invClean(c, await all(c.env, `SELECT i.*, (SELECT COALESCE(SUM(oi.qty),0) FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE oi.inv_id IS NULL AND o.status!='batal' AND o.type='Ready Stock' AND lower(oi.name)=lower(i.name) AND oi.code=i.code) AS legacy_qty FROM inventory i WHERE i.active=1 ORDER BY i.name, i.code`));
+// order Ready Stock lama (sebelum ada inventory) yang cocok dengan kode + deskripsi
+async function hInvLegacy(c) {
+  const name = String(c.query.get("name") || "").trim(), code = String(c.query.get("code") || "").trim().toUpperCase();
+  if (!name) return { orders: 0, qty: 0 };
+  const r = await one(c.env, `SELECT COUNT(DISTINCT o.id) orders, COALESCE(SUM(oi.qty),0) qty FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE ${LEGACY_W}`, name, code);
+  return { orders: r.orders, qty: r.qty };
+}
+async function hInvLinkOld(c, id) {
+  const iv = await one(c.env, "SELECT * FROM inventory WHERE id=?", id);
+  if (!iv) throw new ApiError("Item tidak ditemukan", 404);
+  const rows = await all(c.env, `SELECT oi.id, oi.qty FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE ${LEGACY_W}`, iv.name, iv.code);
+  if (!rows.length) throw new ApiError("Tidak ada order Ready Stock lama yang cocok dengan kode dan deskripsi ini");
+  const sold = rows.reduce((a, r) => a + r.qty, 0);
+  if (sold > iv.qty) throw new ApiError(`Stok di Inventory (${iv.qty}) lebih kecil dari yang sudah terjual di order lama (${sold}). Tambah stok dulu lewat ± Stok.`);
+  await c.env.DB.batch([
+    st(c.env, `UPDATE order_items SET inv_id=?, cost=CASE WHEN cost=0 THEN ? ELSE cost END WHERE id IN (${rows.map(r => Number(r.id)).join(",")})`, id, iv.cost),
+    st(c.env, "UPDATE inventory SET qty=qty-? WHERE id=?", sold, id),
+    st(c.env, "INSERT INTO inv_moves(inv_id,delta,reason,ref,created_at) VALUES(?,?,?,?,?)", id, -sold, "tarik order lama", c.user.name, nowIso()),
+  ]);
+  return { linked: rows.length, qty: sold };
+}
 async function hInvCreate(c) {
   const v = invPayload(c.body), qty = Math.max(0, toInt(c.body.qty));
   if (await one(c.env, "SELECT id FROM inventory WHERE lower(name)=lower(?) AND code=? AND active=1", v.name, v.code)) throw new ApiError("Produk dengan kode dan deskripsi yang sama sudah ada di inventory. Pakai tombol ± Stok untuk menambah jumlahnya.");
@@ -195,7 +217,7 @@ async function buildLines(env, items, type, oldItems = []) {
   const ready = type === "Ready Stock";
   for (const it of items) {
     const invId = toInt(it.inv_id) || null;
-    if (ready && !invId) throw new ApiError("Order Ready Stock hanya bisa dari produk Inventory");
+    if (ready && !invId && !oldItems.some(o => !o.inv_id && String(o.name).toLowerCase() === String(it.name || "").trim().toLowerCase() && (o.code || "") === String(it.code || "").trim().toUpperCase())) throw new ApiError("Order Ready Stock hanya bisa dari produk Inventory");
     let name = String(it.name || "").split(/\s+/).filter(Boolean).join(" "), code = String(it.code || "").trim().toUpperCase().slice(0, 30), country = String(it.country || "").trim().slice(0, 30), cost = Math.max(0, toInt(it.cost));
     if (invId) {
       const iv = await one(env, "SELECT * FROM inventory WHERE id=?", invId);
@@ -543,6 +565,7 @@ async function hBackup(c) {
 
 /* ---------- routing ---------- */
 const ROUTES = [
+  ["GET", /^\/api\/inventory\/legacy$/, hInvLegacy, "admin"], ["POST", /^\/api\/inventory\/(\d+)\/link-old$/, hInvLinkOld, "admin"],
   ["GET", /^\/api\/finance$/, hFinance, "admin"], ["POST", /^\/api\/capital$/, hCapitalCreate, "admin"], ["DELETE", /^\/api\/capital\/(\d+)$/, hCapitalDelete, "admin"],
   ["POST", /^\/api\/payroll$/, hPayrollCreate, "admin"], ["DELETE", /^\/api\/payroll\/(\d+)$/, hPayrollDelete, "admin"], ["GET", /^\/api\/order-rows$/, hOrderRows, "user"],
   ["GET", /^\/api\/inventory$/, hInvList, "user"], ["POST", /^\/api\/inventory$/, hInvCreate, "admin"], ["PUT", /^\/api\/inventory\/(\d+)$/, hInvUpdate, "admin"],
