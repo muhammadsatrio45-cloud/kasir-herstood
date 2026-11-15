@@ -376,7 +376,7 @@ function toast(msg, err) {
   const t = document.createElement("div"); t.className = "toast" + (err ? " err" : ""); t.textContent = (err ? "" : "✦ ") + msg;
   document.body.appendChild(t); setTimeout(() => t.remove(), 2800);
 }
-const guard = fn => async (...a) => { try { return await fn(...a); } catch (e) { toast(e.message, true); } };
+const guard = fn => { let busy = false; return async (...a) => { if (busy) return; busy = true; try { return await fn(...a); } catch (e) { toast(e.message, true); } finally { busy = false; } }; };
 function copyText(txt) {
   if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(txt);
   const ta = document.createElement("textarea"); ta.value = txt; ta.style.position = "fixed"; ta.style.opacity = "0";
