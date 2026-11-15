@@ -159,34 +159,45 @@ const hCustomerDelete = async (c, id) => { await run(c.env, "DELETE FROM custome
 
 /* ---------- inventory (stok ready stock, direkap manual) ---------- */
 const invClean = (c, rows) => { if (c.user.role !== "admin") for (const r of rows) { delete r.cost; delete r.legacy_qty; } return rows; };
-const LEGACY_W = "oi.inv_id IS NULL AND o.status!='batal' AND o.type='Ready Stock' AND lower(oi.name)=lower(?) AND oi.code=?";
+const LEGACY_BASE = "oi.inv_id IS NULL AND o.status!='batal' AND o.type='Ready Stock'";
+// order lama yang cocok: kode sama (deskripsi boleh beda ejaan); kalau kode kosong, deskripsi harus sama persis
+const legacyMatch = code => code ? { w: `${LEGACY_BASE} AND oi.code=?`, a: [code] } : { w: `${LEGACY_BASE} AND oi.code='' AND lower(oi.name)=lower(?)`, a: [] };
 function invPayload(b) {
   const name = String(b.name || "").split(/\s+/).filter(Boolean).join(" ");
   if (!name) throw new ApiError("Deskripsi produk wajib diisi");
   return { name, code: String(b.code || "").trim().toUpperCase().slice(0, 30), country: String(b.country || "").trim().slice(0, 30), cost: Math.max(0, toInt(b.cost)), price: Math.max(0, toInt(b.price)), note: String(b.note || "").trim() };
 }
-const hInvList = async c => invClean(c, await all(c.env, `SELECT i.*, (SELECT COALESCE(SUM(oi.qty),0) FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE oi.inv_id IS NULL AND o.status!='batal' AND o.type='Ready Stock' AND lower(oi.name)=lower(i.name) AND oi.code=i.code) AS legacy_qty FROM inventory i WHERE i.active=1 ORDER BY i.name, i.code`));
-// order Ready Stock lama (sebelum ada inventory) yang cocok dengan kode + deskripsi
+const hInvList = async c => invClean(c, await all(c.env, `SELECT i.*, (SELECT COALESCE(SUM(oi.qty),0) FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE ${LEGACY_BASE} AND ((i.code<>'' AND oi.code=i.code) OR (i.code='' AND oi.code='' AND lower(oi.name)=lower(i.name)))) AS legacy_qty FROM inventory i WHERE i.active=1 ORDER BY i.name, i.code`));
+// order Ready Stock lama (sebelum ada inventory) yang cocok, dikelompokkan per deskripsi yang pernah diketik
+async function legacyVariants(env, name, code) {
+  const m = legacyMatch(code), args = code ? m.a : [name];
+  const rows = await all(env, `SELECT MIN(oi.name) name, COUNT(DISTINCT o.id) orders, SUM(oi.qty) qty FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE ${m.w} GROUP BY lower(oi.name) ORDER BY qty DESC`, ...args);
+  return rows.map(r => ({ ...r, exact: r.name.toLowerCase() === name.toLowerCase() }));
+}
 async function hInvLegacy(c) {
   const name = String(c.query.get("name") || "").trim(), code = String(c.query.get("code") || "").trim().toUpperCase();
-  if (!name) return { orders: 0, qty: 0 };
-  const r = await one(c.env, `SELECT COUNT(DISTINCT o.id) orders, COALESCE(SUM(oi.qty),0) qty FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE ${LEGACY_W}`, name, code);
-  return { orders: r.orders, qty: r.qty };
+  if (!name && !code) return { variants: [] };
+  return { variants: await legacyVariants(c.env, name, code) };
 }
 async function hInvLinkOld(c, id) {
   const iv = await one(c.env, "SELECT * FROM inventory WHERE id=?", id);
   if (!iv) throw new ApiError("Item tidak ditemukan", 404);
-  const rows = await all(c.env, `SELECT oi.id, oi.qty FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE ${LEGACY_W}`, iv.name, iv.code);
-  if (!rows.length) throw new ApiError("Tidak ada order Ready Stock lama yang cocok dengan kode dan deskripsi ini");
+  const all_ = await legacyVariants(c.env, iv.name, iv.code);
+  const pick = new Set((Array.isArray(c.body.names) ? c.body.names : all_.filter(v => v.exact).map(v => v.name)).map(n => String(n).toLowerCase()));
+  const m = legacyMatch(iv.code), args = iv.code ? m.a : [iv.name];
+  const rows = (await all(c.env, `SELECT oi.id, oi.qty, lower(oi.name) n FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE ${m.w}`, ...args)).filter(r => pick.has(r.n));
+  if (!rows.length) throw new ApiError("Tidak ada order Ready Stock lama yang dipilih");
   const sold = rows.reduce((a, r) => a + r.qty, 0);
   if (sold > iv.qty) throw new ApiError(`Stok di Inventory (${iv.qty}) lebih kecil dari yang sudah terjual di order lama (${sold}). Tambah stok dulu lewat ± Stok.`);
+  const ids = rows.map(r => Number(r.id)).join(",");
   await c.env.DB.batch([
-    st(c.env, `UPDATE order_items SET inv_id=?, cost=CASE WHEN cost=0 THEN ? ELSE cost END WHERE id IN (${rows.map(r => Number(r.id)).join(",")})`, id, iv.cost),
+    st(c.env, `UPDATE order_items SET inv_id=?, cost=CASE WHEN cost=0 THEN ? ELSE cost END, country=CASE WHEN country='' THEN ? ELSE country END${c.body.rename ? ", name=?, code=?" : ""} WHERE id IN (${ids})`, id, iv.cost, iv.country, ...(c.body.rename ? [iv.name, iv.code] : [])),
     st(c.env, "UPDATE inventory SET qty=qty-? WHERE id=?", sold, id),
     st(c.env, "INSERT INTO inv_moves(inv_id,delta,reason,ref,created_at) VALUES(?,?,?,?,?)", id, -sold, "tarik order lama", c.user.name, nowIso()),
   ]);
   return { linked: rows.length, qty: sold };
 }
+
 async function hInvCreate(c) {
   const v = invPayload(c.body), qty = Math.max(0, toInt(c.body.qty));
   if (await one(c.env, "SELECT id FROM inventory WHERE lower(name)=lower(?) AND code=? AND active=1", v.name, v.code)) throw new ApiError("Produk dengan kode dan deskripsi yang sama sudah ada di inventory. Pakai tombol ± Stok untuk menambah jumlahnya.");
