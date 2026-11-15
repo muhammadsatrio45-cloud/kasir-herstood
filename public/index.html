@@ -1046,9 +1046,9 @@ async function vInventory() {
 }
 function legacyBlock(vars) {
   return `<b>Ditemukan order Ready Stock lama dengan kode ini.</b> Centang yang memang produk ini, lalu stok otomatis dikurangi dan modal order lama diisi:
-    ${vars.map(v => `<label style="display:flex;gap:8px;align-items:flex-start;margin:8px 0"><input type="checkbox" data-lv="${esc(v.name.toLowerCase())}" ${v.exact ? "checked" : ""}><span><b>${esc(v.name)}</b> · ${v.orders} order, ${v.qty} pcs terjual${v.exact ? " <small>(deskripsi sama persis)</small>" : ""}</span></label>`).join("")}
+    ${vars.map(v => `<label style="display:flex;gap:8px;align-items:flex-start;margin:8px 0"><input type="checkbox" data-lv="${esc(v.key)}" ${v.exact && v.ready ? "checked" : ""}><span><b>${esc(v.name)}</b> · <span class="badge ${v.ready ? "paid" : ""}">${v.ready ? "Ready Stock" : "Jastip"}</span> ${v.orders} order, ${v.qty} pcs${v.exact ? " <small>(deskripsi sama persis)</small>" : ""}</span></label>`).join("")}
     <label style="display:flex;gap:8px;align-items:flex-start;margin-top:6px"><input type="checkbox" id="gRename" checked><span>Samakan deskripsi di order lama dengan deskripsi Inventory</span></label>
-    <p class="muted sm" style="margin:6px 0 0">Jangan dicentang kalau stok yang kamu isi sudah stok sisa.</p>`;
+    <p class="muted sm" style="margin:6px 0 0">Order berjenis <b>Jastip</b> tidak otomatis tercentang karena biasanya dibeli on-demand. Centang hanya kalau barangnya sebenarnya diambil dari stok ini; jenis ordernya otomatis menjadi Ready Stock. Jangan dicentang kalau stok yang kamu isi sudah stok sisa.</p>`;
 }
 async function legacyForm(x) {
   const vars = (await api("GET", `/api/inventory/legacy?name=${encodeURIComponent(x.name)}&code=${encodeURIComponent(x.code || "")}`)).variants;

@@ -159,7 +159,7 @@ const hCustomerDelete = async (c, id) => { await run(c.env, "DELETE FROM custome
 
 /* ---------- inventory (stok ready stock, direkap manual) ---------- */
 const invClean = (c, rows) => { if (c.user.role !== "admin") for (const r of rows) { delete r.cost; delete r.legacy_qty; } return rows; };
-const LEGACY_BASE = "oi.inv_id IS NULL AND o.status!='batal' AND o.type='Ready Stock'";
+const LEGACY_BASE = "oi.inv_id IS NULL AND o.status!='batal'";
 // order lama yang cocok: kode sama (deskripsi boleh beda ejaan); kalau kode kosong, deskripsi harus sama persis
 const legacyMatch = code => code ? { w: `${LEGACY_BASE} AND oi.code=?`, a: [code] } : { w: `${LEGACY_BASE} AND oi.code='' AND lower(oi.name)=lower(?)`, a: [] };
 function invPayload(b) {
@@ -171,8 +171,8 @@ const hInvList = async c => invClean(c, await all(c.env, `SELECT i.*, (SELECT CO
 // order Ready Stock lama (sebelum ada inventory) yang cocok, dikelompokkan per deskripsi yang pernah diketik
 async function legacyVariants(env, name, code) {
   const m = legacyMatch(code), args = code ? m.a : [name];
-  const rows = await all(env, `SELECT MIN(oi.name) name, COUNT(DISTINCT o.id) orders, SUM(oi.qty) qty FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE ${m.w} GROUP BY lower(oi.name) ORDER BY qty DESC`, ...args);
-  return rows.map(r => ({ ...r, exact: r.name.toLowerCase() === name.toLowerCase() }));
+  const rows = await all(env, `SELECT MIN(oi.name) name, (o.type='Ready Stock') ready, COUNT(DISTINCT o.id) orders, SUM(oi.qty) qty FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE ${m.w} GROUP BY lower(oi.name), ready ORDER BY ready DESC, qty DESC`, ...args);
+  return rows.map(r => ({ ...r, ready: !!r.ready, key: r.name.toLowerCase() + "|" + (r.ready ? 1 : 0), exact: r.name.toLowerCase() === name.toLowerCase() }));
 }
 async function hInvLegacy(c) {
   const name = String(c.query.get("name") || "").trim(), code = String(c.query.get("code") || "").trim().toUpperCase();
@@ -183,15 +183,17 @@ async function hInvLinkOld(c, id) {
   const iv = await one(c.env, "SELECT * FROM inventory WHERE id=?", id);
   if (!iv) throw new ApiError("Item tidak ditemukan", 404);
   const all_ = await legacyVariants(c.env, iv.name, iv.code);
-  const pick = new Set((Array.isArray(c.body.names) ? c.body.names : all_.filter(v => v.exact).map(v => v.name)).map(n => String(n).toLowerCase()));
+  const pick = new Set((Array.isArray(c.body.names) ? c.body.names : all_.filter(v => v.exact && v.ready).map(v => v.key)).map(n => String(n).toLowerCase()));
   const m = legacyMatch(iv.code), args = iv.code ? m.a : [iv.name];
-  const rows = (await all(c.env, `SELECT oi.id, oi.qty, lower(oi.name) n FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE ${m.w}`, ...args)).filter(r => pick.has(r.n));
+  const rows = (await all(c.env, `SELECT oi.id, oi.qty, oi.order_id oid, lower(oi.name) || '|' || (o.type='Ready Stock') n FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE ${m.w}`, ...args)).filter(r => pick.has(r.n));
   if (!rows.length) throw new ApiError("Tidak ada order Ready Stock lama yang dipilih");
   const sold = rows.reduce((a, r) => a + r.qty, 0);
   if (sold > iv.qty) throw new ApiError(`Stok di Inventory (${iv.qty}) lebih kecil dari yang sudah terjual di order lama (${sold}). Tambah stok dulu lewat ± Stok.`);
-  const ids = rows.map(r => Number(r.id)).join(",");
+  const ids = rows.map(r => Number(r.id)).join(","), oids = [...new Set(rows.map(r => Number(r.oid)))].join(",");
   await c.env.DB.batch([
     st(c.env, `UPDATE order_items SET inv_id=?, cost=CASE WHEN cost=0 THEN ? ELSE cost END, country=CASE WHEN country='' THEN ? ELSE country END${c.body.rename ? ", name=?, code=?" : ""} WHERE id IN (${ids})`, id, iv.cost, iv.country, ...(c.body.rename ? [iv.name, iv.code] : [])),
+    // order yang semua barisnya kini dari inventory otomatis menjadi jenis Ready Stock
+    st(c.env, `UPDATE orders SET type='Ready Stock' WHERE id IN (${oids}) AND NOT EXISTS (SELECT 1 FROM order_items x WHERE x.order_id=orders.id AND x.inv_id IS NULL)`),
     st(c.env, "UPDATE inventory SET qty=qty-? WHERE id=?", sold, id),
     st(c.env, "INSERT INTO inv_moves(inv_id,delta,reason,ref,created_at) VALUES(?,?,?,?,?)", id, -sold, "tarik order lama", c.user.name, nowIso()),
   ]);
