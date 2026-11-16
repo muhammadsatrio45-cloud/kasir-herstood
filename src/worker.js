@@ -139,7 +139,7 @@ async function hProductUpdate(c, id) {
 const hProductDelete = async (c, id) => { await run(c.env, "DELETE FROM products WHERE id=?", id); return { ok: true }; };
 
 /* ---------- pelanggan ---------- */
-const hCustomersList = c => all(c.env, `SELECT cu.*, COALESCE(s.cnt,0) AS orders, COALESCE(s.total,0) AS spent FROM customers cu LEFT JOIN (SELECT customer_id, COUNT(*) cnt, SUM(total) total FROM orders GROUP BY customer_id) s ON s.customer_id=cu.id ORDER BY cu.name`);
+const hCustomersList = c => all(c.env, `SELECT cu.*, COALESCE(s.cnt,0) AS orders, COALESCE(s.total,0) AS spent FROM customers cu LEFT JOIN (SELECT customer_id, COUNT(*) cnt, SUM(total) total FROM orders WHERE status!='batal' GROUP BY customer_id) s ON s.customer_id=cu.id ORDER BY cu.name`);
 function customerPayload(b) {
   const name = String(b.name || "").trim();
   if (!name) throw new ApiError("Nama pelanggan wajib diisi");
@@ -571,6 +571,7 @@ async function hUserUpdate(c, uid) {
   let pw = u.password, must = u.must_change;
   if (b.password) { if (String(b.password).length < 6) throw new ApiError("Password minimal 6 karakter"); pw = await hashPw(String(b.password)); must = 1; }
   await run(c.env, "UPDATE users SET name=?,role=?,active=?,password=?,must_change=? WHERE id=?", name, role, active, pw, must, uid);
+  if (name !== u.name) await c.env.DB.batch([st(c.env, "UPDATE orders SET cashier=? WHERE cashier=?", name, u.name), st(c.env, "UPDATE payments SET cashier=? WHERE cashier=?", name, u.name), st(c.env, "UPDATE expenses SET cashier=? WHERE cashier=?", name, u.name)]);
   if (!active || b.password) await run(c.env, "DELETE FROM sessions WHERE user_id=?", uid);
   return { ok: true };
 }
@@ -590,7 +591,6 @@ async function hBackup(c) {
 }
 
 /* ---------- halaman pelacakan publik (tanpa login, tanpa harga) ---------- */
-const maskName = n => String(n || "").split(/\s+/).filter(Boolean).map(w => [...w].slice(0, 2).join("") + "***").join(" ");
 async function hTrack(c) {
   const s = await getSettings(c.env);
   if (+s.track_enabled === 0) throw new ApiError("Halaman pelacakan sedang dinonaktifkan", 403);
@@ -604,7 +604,7 @@ async function hTrack(c) {
   if (q) { where.push("(o.number LIKE ? ESCAPE '\\' OR o.customer_name LIKE ? ESCAPE '\\')"); args.push(like, like); }
   const orders = await all(c.env, `SELECT o.id,o.number,o.created_at,o.customer_name,o.status FROM orders o WHERE ${where.join(" AND ")} ORDER BY o.id DESC LIMIT 80`, ...args);
   const items = orders.length ? await all(c.env, `SELECT order_id,country,code,name,qty FROM order_items WHERE order_id IN (${orders.map(() => "?").join(",")}) ORDER BY id`, ...orders.map(o => o.id)) : [];
-  return { brand: s.store_name, rows: orders.map(o => ({ number: o.number, date: o.created_at.slice(0, 10), customer: maskName(o.customer_name), status: o.status, items: items.filter(i => i.order_id === o.id).map(i => ({ country: i.country, code: i.code, name: i.name, qty: i.qty })) })) };
+  return { brand: s.store_name, rows: orders.map(o => ({ number: o.number, date: o.created_at.slice(0, 10), customer: o.customer_name, status: o.status, items: items.filter(i => i.order_id === o.id).map(i => ({ country: i.country, code: i.code, name: i.name, qty: i.qty })) })) };
 }
 
 /* ---------- routing ---------- */

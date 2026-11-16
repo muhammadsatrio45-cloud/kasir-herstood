@@ -162,6 +162,13 @@ h2:before{content:"♡ ";color:var(--primary)}
 .chips{display:flex;gap:6px;flex-wrap:wrap}
 .chip{border:1.5px solid var(--ink);background:var(--card);border-radius:999px;padding:4px 13px;cursor:pointer;font-size:12px;font-weight:600}
 .chip.on{background:var(--primary);color:#fff;text-shadow:0 1px 0 rgba(0,0,0,.18)}
+.podium{display:flex;align-items:flex-end;justify-content:center;gap:10px;max-width:560px;margin:0 auto}
+.podium .pc{flex:1;min-width:0;text-align:center;display:flex;flex-direction:column;align-items:center}
+.podium .pav{border:3px solid var(--text);border-radius:50%;box-shadow:3px 3px 0 var(--text);background:#fff;overflow:hidden;display:block}
+.podium .pn{font-weight:700;margin-top:8px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.podium .ps{font-size:13px;color:var(--muted);margin-bottom:6px}
+.podium .pb{width:100%;border:3px solid var(--text);border-bottom:0;border-radius:14px 14px 0 0;display:grid;place-items:center;font-size:34px;font-weight:700;color:#fff;text-shadow:2px 2px 0 var(--text)}
+.podium .crown{width:34px;height:24px;margin-bottom:-4px}
 .trow{display:flex;justify-content:space-between;gap:10px}
 .trow.big{font-size:18px;font-weight:700}
 .dpbox{background:var(--primary-soft);border:2px dashed var(--ink);border-radius:12px;padding:8px 10px;margin-top:6px}
@@ -459,7 +466,7 @@ async function start() {
   applyTheme();
   $("#login").classList.add("hidden"); $("#app").classList.remove("hidden");
   $("#userInfo").textContent = `${S.user.name} (${S.user.role})`;
-  const items = [["dashboard", "Dashboard"], ["order", "Order"], ["rekap", "Rekap Order"], ["produk", "Master Produk"], ...(isAdmin() ? [["inventory", "Inventory"]] : []), ["pelanggan", "Pelanggan"], ...(isAdmin() ? [["kalkulator", "Kalkulator HPP"], ["keuangan", "Keuangan"], ["laporan", "Laporan"]] : []), ["pengaturan", "Pengaturan"]];
+  const items = [["dashboard", "Dashboard"], ["order", "Order"], ["rekap", "Rekap Order"], ["produk", "Master Produk"], ["inventory", "Inventory"], ["pelanggan", "Pelanggan"], ["kalkulator", "Kalkulator HPP"], ...(isAdmin() ? [["keuangan", "Keuangan"], ["laporan", "Laporan"]] : []), ["pengaturan", "Pengaturan"]];
   $("#nav").innerHTML = items.map(([k, l]) => `<button data-v="${k}">${svg(k)}<span>${l}</span></button>`).join("");
   $$("#nav button").forEach(b => b.onclick = () => { go(b.dataset.v); $("#side").classList.remove("open"); });
   go(S.view || "order"); say("Halo " + S.user.name + "! ♡");
@@ -1024,10 +1031,9 @@ function productForm(p = {}) {
 
 /* ============ inventory (stok ready stock) ============ */
 async function vInventory() {
-  if (!isAdmin()) return $("#view").innerHTML = emptyBox("Menu ini khusus admin.");
-  const list = await api("GET", "/api/inventory");
-  $("#topActions").innerHTML = `<div class="searchbox">${svg("search")}<input class="input" id="vQ" placeholder="Cari kode / deskripsi"></div><select class="input" id="vC" style="width:auto"><option value="">Semua negara</option>${countries().map(c => `<option>${esc(c)}</option>`).join("")}</select><button class="btn" id="vNew">+ Tambah Item</button>`;
-  $("#vNew").onclick = () => invForm();
+  const adm = isAdmin(), list = await api("GET", "/api/inventory");
+  $("#topActions").innerHTML = `<div class="searchbox">${svg("search")}<input class="input" id="vQ" placeholder="Cari kode / deskripsi"></div><select class="input" id="vC" style="width:auto"><option value="">Semua negara</option>${countries().map(c => `<option>${esc(c)}</option>`).join("")}</select>${adm ? '<button class="btn" id="vNew">+ Tambah Item</button>' : ""}`;
+  if (adm) $("#vNew").onclick = () => invForm();
   const draw = () => {
     const q = ($("#vQ").value || "").toLowerCase(), c = $("#vC").value;
     const l = list.filter(x => (x.name + " " + x.code).toLowerCase().includes(q) && (!c || x.country === c));
@@ -1035,14 +1041,14 @@ async function vInventory() {
     $("#view").innerHTML = `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin-bottom:12px">
       <div class="card"><div class="muted sm">Jumlah item</div><b style="font-size:22px">${list.length}</b></div>
       <div class="card"><div class="muted sm">Total stok (pcs)</div><b style="font-size:22px">${qty.toLocaleString("id-ID")}</b></div>
-      <div class="card"><div class="muted sm">Modal tertanam di stok</div><b style="font-size:22px">${fmt(modal)}</b></div>
-      <div class="card"><div class="muted sm">Potensi penjualan</div><b style="font-size:22px">${fmt(jual)}</b><div class="muted sm">Potensi laba ${fmt(jual - modal)}</div></div></div>
-    ` + (l.length ? `<div class="table-wrap"><table><tr><th>Negara</th><th>Kode</th><th>Deskripsi</th><th class="num">Stok</th><th class="num">Modal</th><th class="num">Harga jual</th><th class="num">Laba/item</th><th></th></tr>
+      ${adm ? `<div class="card"><div class="muted sm">Modal tertanam di stok</div><b style="font-size:22px">${fmt(modal)}</b></div>
+      <div class="card"><div class="muted sm">Potensi penjualan</div><b style="font-size:22px">${fmt(jual)}</b><div class="muted sm">Potensi laba ${fmt(jual - modal)}</div></div>` : `<div class="card"><div class="muted sm">Potensi penjualan</div><b style="font-size:22px">${fmt(jual)}</b></div>`}</div>
+    ` + (l.length ? `<div class="table-wrap"><table><tr><th>Negara</th><th>Kode</th><th>Deskripsi</th><th class="num">Stok</th>${adm ? '<th class="num">Modal</th>' : ""}<th class="num">Harga jual</th>${adm ? '<th class="num">Laba/item</th><th></th>' : ""}</tr>
     ${l.map(x => `<tr><td>${x.country ? cBadge(x.country) : "-"}</td><td><b>${esc(x.code || "-")}</b></td><td>${esc(x.name)}</td>
       <td class="num"><b style="${x.qty <= 0 ? "color:var(--accent)" : x.qty <= 3 ? "color:#b45309" : ""}">${x.qty}</b>${x.qty <= 0 ? " <small>habis</small>" : x.qty <= 3 ? " <small>menipis</small>" : ""}</td>
-      <td class="num">${fmt(x.cost)}</td><td class="num">${fmt(x.price)}</td><td class="num">${fmt(x.price - x.cost)}</td>
-      <td class="num">${x.legacy_qty ? `<button class="btn ok sm" data-l="${x.id}" title="Ada order Ready Stock lama yang belum tertaut">Tarik order lama (${x.legacy_qty})</button> ` : ""}<button class="btn sm" data-s="${x.id}">± Stok</button> <button class="btn sec sm" data-e="${x.id}">Edit</button> <button class="btn danger sm" data-d="${x.id}">Hapus</button></td></tr>`).join("")}</table></div>`
-      : emptyBox("Inventory masih kosong. Klik + Tambah Item untuk mencatat stok ready stock pertamamu ✿"));
+      ${adm ? `<td class="num">${fmt(x.cost)}</td>` : ""}<td class="num">${fmt(x.price)}</td>${adm ? `<td class="num">${fmt(x.price - x.cost)}</td>
+      <td class="num">${x.legacy_qty ? `<button class="btn ok sm" data-l="${x.id}" title="Ada order Ready Stock lama yang belum tertaut">Tarik order lama (${x.legacy_qty})</button> ` : ""}<button class="btn sm" data-s="${x.id}">± Stok</button> <button class="btn sec sm" data-e="${x.id}">Edit</button> <button class="btn danger sm" data-d="${x.id}">Hapus</button></td>` : ""}</tr>`).join("")}</table></div>`
+      : emptyBox(adm ? "Inventory masih kosong. Klik + Tambah Item untuk mencatat stok ready stock pertamamu ✿" : "Inventory masih kosong ✿"));
     $$("[data-l]").forEach(b => b.onclick = guard(() => legacyForm(list.find(v => v.id === +b.dataset.l))));
     $$("[data-s]").forEach(b => b.onclick = () => stockForm(list.find(x => x.id === +b.dataset.s)));
     $$("[data-e]").forEach(b => b.onclick = () => invForm(list.find(x => x.id === +b.dataset.e)));
@@ -1117,7 +1123,6 @@ function stockForm(x) {
 /* ============ kalkulator HPP ============ */
 const HPP_CUR = [["CNY", "Yuan (China)", 2300], ["KRW", "Won (Korea)", 11.5], ["THB", "Baht (Thailand)", 480], ["JPY", "Yen (Jepang)", 105], ["USD", "Dolar AS", 16500], ["LAIN", "Lainnya", 0]];
 async function vHpp() {
-  if (!isAdmin()) return;
   const KEY = "hpp_kurs", rd = () => { try { return JSON.parse(localStorage.getItem(KEY) || "{}"); } catch { return {}; } };
   const wr = (c, v) => { try { const o = rd(); o[c] = v; localStorage.setItem(KEY, JSON.stringify(o)); } catch { } };
   const num = id => +($("#" + id).value) || 0, set = (id, v) => { $("#" + id).textContent = v; };
@@ -1128,10 +1133,10 @@ async function vHpp() {
       <div class="two"><div class="field"><label>Nama barang (opsional)</label><input class="input" id="hName" placeholder="mis. Lucky Clover M5"></div>${fld("hQty", "Jumlah (pcs)", 'value="1"', "Biaya di bawah = untuk seluruh jumlah ini")}</div>
       <div class="two"><div class="field"><label>Mata uang</label><select class="input" id="hCur">${HPP_CUR.map(c => `<option value="${c[0]}">${c[1]}</option>`).join("")}</select></div>${fld("hKurs", "Kurs (Rp per 1 mata uang)", 'value=""', "Tersimpan otomatis per mata uang")}</div>
       <div class="two">${fld("hBuy", "Harga beli (mata uang asing)")}<div class="field"><label>Harga beli (Rp)</label><div class="input" id="hBuyIdr" style="background:var(--bg)">Rp 0</div></div></div>
-      ${fld("hKg", "Berat (kg)", "", "Dipakai untuk menghitung ongkir per kg")}
+      ${fld("hKg", "Berat (gram)", "", "Dipakai untuk menghitung ongkir per gram")}
       <div class="two">${fld("hWh", "Fee WH (Rp)")}${fld("hPack", "Fee Packing (Rp)")}</div>
-      <div class="two">${fld("hShip1", "Ongkir negara → Indonesia (Rp)")}${fld("hRate1", "…atau tarif / kg (Rp)", "", "Isi tarif, total otomatis = berat × tarif")}</div>
-      <div class="two">${fld("hShip2", "Ongkir WH → Indo (Rp)")}${fld("hRate2", "…atau tarif / kg (Rp)")}</div>
+      <div class="two">${fld("hShip1", "Ongkir negara → Indonesia (Rp)")}${fld("hRate1", "…atau tarif / gram (Rp)", "", "Isi tarif, total otomatis = berat × tarif (mis. Rp 60.000/kg = 60 per gram)")}</div>
+      <div class="two">${fld("hShip2", "Ongkir WH → Indo (Rp)")}${fld("hRate2", "…atau tarif / gram (Rp)")}</div>
       <div class="two">${fld("hTax", "Tax (Rp)")}${fld("hOther", "Biaya lain (Rp)")}</div>
       <button class="btn sec" id="hReset">Kosongkan</button></div>
     <div class="card"><h2>Hasil</h2>
@@ -1162,13 +1167,57 @@ async function vHpp() {
   $("#hCopy").onclick = () => copyText(String(Math.round(calc()))).then(() => toast("HPP per pcs tersalin"));
 }
 
+/* ============ podium pelanggan: 3 karakter maskot ============ */
+function chibi(v) {
+  const ink = "#231f1e", star = (x, y, r) => `M${x} ${y - r}L${x + r * .3} ${y - r * .3}L${x + r} ${y}L${x + r * .3} ${y + r * .3}L${x} ${y + r}L${x - r * .3} ${y + r * .3}L${x - r} ${y}L${x - r * .3} ${y - r * .3}Z`;
+  const star5 = (cx, cy, R) => { const p = []; for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, r = i % 2 ? R * .45 : R; p.push((cx + r * Math.cos(a)).toFixed(1) + "," + (cy + r * Math.sin(a)).toFixed(1)); } return p.join(" "); };
+  const T = [
+    { bg: "#ee3a82", hair: "#231f1e" },   // juara: kuncir dua + klip bintang
+    { bg: "#f9a8c9", hair: "#5b1030" },   // bob + klip hati
+    { bg: "#fbd0e3", hair: "#3a2320" },   // cepol dua + scrunchie
+  ][v];
+  const dome = `<path d="M54 112C44 40 156 40 146 112L138 96L128 108L118 92L110 108L100 90L90 108L82 92L72 108L62 94Z" fill="${T.hair}"/>`;
+  const eyes = `<ellipse cx="80" cy="118" rx="12" ry="14" fill="${ink}"/><ellipse cx="120" cy="118" rx="12" ry="14" fill="${ink}"/><path d="${star(77, 114, 6)}" fill="#fff"/><path d="${star(117, 114, 6)}" fill="#fff"/><circle cx="84" cy="123" r="1.8" fill="#fff"/><circle cx="124" cy="123" r="1.8" fill="#fff"/>
+    <path d="M66 103Q80 97 92 104M108 104Q120 97 134 103" stroke="${ink}" stroke-width="2.4" fill="none" stroke-linecap="round"/>`;
+  const nose = `<path d="M98 130q-2 4 2 5" stroke="${ink}" stroke-width="2" fill="none" stroke-linecap="round"/>`;
+  let back = "", front = "", mouth = "", cheeks = `<circle cx="68" cy="136" r="7" fill="#ff8fb8" opacity=".45"/><circle cx="132" cy="136" r="7" fill="#ff8fb8" opacity=".45"/>`;
+  if (v === 0) {
+    back = `<path d="M58 112C28 122 26 168 42 182L66 172C60 152 64 130 64 112Z" fill="${T.hair}"/><path d="M142 112C172 122 174 168 158 182L134 172C140 152 136 130 136 112Z" fill="${T.hair}"/><circle cx="46" cy="134" r="0"/>`;
+    front = `<polygon points="${star5(70, 64, 11)}" fill="none" stroke="#ffb3d1" stroke-width="3" stroke-linejoin="round"/><polygon points="${star5(92, 54, 9)}" fill="none" stroke="#fff" stroke-width="2.5" stroke-linejoin="round"/>
+      <path d="M52 134q-10-8-4-14 4 2 6 8M52 134q-10 8-14 2 3-6 10-6" fill="none" stroke="#ffb3d1" stroke-width="3" stroke-linecap="round"/><path d="M148 134q10-8 4-14-4 2-6 8M148 134q10 8 14 2-3-6-10-6" fill="none" stroke="#ffb3d1" stroke-width="3" stroke-linecap="round"/>`;
+    mouth = `<path d="M91 146Q100 152 109 146" stroke="${ink}" stroke-width="2.4" fill="none" stroke-linecap="round"/><path d="M95 148q5 12 10 0z" fill="#ff7aa8" stroke="${ink}" stroke-width="2"/>`;
+  } else if (v === 1) {
+    back = `<path d="M54 108C36 128 40 170 60 180L74 152L72 108Z" fill="${T.hair}"/><path d="M146 108C164 128 160 170 140 180L126 152L128 108Z" fill="${T.hair}"/>`;
+    front = `<path d="M128 62c-6-9-20-3-14 8 4 6 14 12 14 12s10-6 14-12c6-11-8-17-14-8z" fill="#ffb3d1" stroke="#fff" stroke-width="2"/>
+      <path d="M60 70l-14-8v16zM60 70l14-8v16z" fill="#ffb3d1" stroke="${ink}" stroke-width="1.8" stroke-linejoin="round"/><circle cx="60" cy="70" r="4" fill="#ff7aa8" stroke="${ink}" stroke-width="1.5"/>`;
+    mouth = `<path d="M90 144Q100 156 110 144" stroke="${ink}" stroke-width="2.6" fill="none" stroke-linecap="round"/>`;
+    cheeks = `<circle cx="66" cy="138" r="8" fill="#ff6fa3" opacity=".5"/><circle cx="134" cy="138" r="8" fill="#ff6fa3" opacity=".5"/>`;
+  } else {
+    back = `<circle cx="56" cy="46" r="21" fill="${T.hair}"/><circle cx="144" cy="46" r="21" fill="${T.hair}"/><path d="M56 112L50 156L62 158L64 112Z" fill="${T.hair}"/><path d="M144 112L150 156L138 158L136 112Z" fill="${T.hair}"/>`;
+    front = `<ellipse cx="62" cy="66" rx="16" ry="6" fill="#ff7aa8" stroke="${ink}" stroke-width="2" transform="rotate(-24 62 66)"/><ellipse cx="138" cy="66" rx="16" ry="6" fill="#ff7aa8" stroke="${ink}" stroke-width="2" transform="rotate(24 138 66)"/>
+      <path d="${star(100, 62, 7)}" fill="#fff" stroke="${ink}" stroke-width="1.5" stroke-linejoin="round"/>`;
+    mouth = `<path d="M91 143q4 7 9 0q5 7 9 0" stroke="${ink}" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
+  }
+  return `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"><defs><clipPath id="cp${v}"><circle cx="100" cy="100" r="100"/></clipPath></defs><g clip-path="url(#cp${v})"><rect width="200" height="200" fill="${T.bg}"/>
+    <path d="M20 40l6 12 12 6-12 6-6 12-6-12-12-6 12-6zM176 150l4 8 8 4-8 4-4 8-4-8-8-4 8-4z" fill="#fff" opacity=".7"/>
+    ${back}<ellipse cx="100" cy="118" rx="46" ry="42" fill="#f4f4f4" stroke="${ink}" stroke-width="3"/>${cheeks}${dome}${eyes}${nose}${mouth}${front}</g></svg>`;
+}
+function podium(list) {
+  const top = list.filter(c => c.name !== "Umum" && c.spent > 0).sort((a, b) => b.spent - a.spent).slice(0, 3);
+  if (!top.length) return "";
+  const cfg = [{ i: 1, av: 92, h: 70, col: "#f9a8c9", lbl: "2" }, { i: 0, av: 116, h: 104, col: "var(--primary)", lbl: "1" }, { i: 2, av: 84, h: 52, col: "#e8b7cc", lbl: "3" }];
+  const crown = `<svg class="crown" viewBox="0 0 34 24"><path d="M2 20L5 5l8 8 4-11 4 11 8-8 3 15z" fill="#fbbf24" stroke="#231f1e" stroke-width="2" stroke-linejoin="round"/></svg>`;
+  return `<div class="card" style="margin-bottom:14px"><h2 style="text-align:center">✦ Top 3 Spent ✦</h2><div class="podium">${cfg.map(c => { const u = top[c.i]; if (!u) return `<div class="pc"></div>`;
+    return `<div class="pc">${c.i === 0 ? crown : ""}<span class="pav" style="width:${c.av}px;height:${c.av}px">${chibi(c.i)}</span><div class="pn" title="${esc(u.name)}">${esc(u.name)}</div><div class="ps"><b style="color:var(--accent)">${fmt(u.spent)}</b><br>${u.orders} order</div><div class="pb" style="height:${c.h}px;background:${c.col}">${c.lbl}</div></div>`; }).join("")}</div></div>`;
+}
+
 /* ============ pelanggan ============ */
 async function vCustomers() {
   try { const r = await api("POST", "/api/customers/sync", {}); if (r.added) { toast(`${r.added} pelanggan diambil dari riwayat order`); await refreshProducts(); } } catch (e) {}
   const list = await api("GET", "/api/customers");
   $("#topActions").innerHTML = `<button class="btn" id="cNew">+ Tambah Pelanggan</button>`;
   $("#cNew").onclick = () => customerForm();
-  $("#view").innerHTML = `<div class="table-wrap"><table><tr><th>Nama</th><th>Telepon / WA</th><th>Alamat</th><th class="num">Order</th><th class="num">Total belanja</th><th></th></tr>
+  $("#view").innerHTML = podium(list) + `<div class="table-wrap"><table><tr><th>Nama</th><th>Telepon / WA</th><th>Alamat</th><th class="num">Order</th><th class="num">Total belanja</th><th></th></tr>
   ${list.map(c => `<tr><td><b>${esc(c.name)}</b></td><td>${esc(c.phone)}</td><td>${esc(c.address)}</td><td class="num">${c.orders}</td><td class="num">${fmt(c.spent)}</td>
   <td class="num"><button class="btn sec sm" data-e="${c.id}">Edit</button> ${isAdmin() && c.name !== "Umum" ? `<button class="btn danger sm" data-d="${c.id}">Hapus</button>` : ""}</td></tr>`).join("")}</table></div>`;
   $$("[data-e]").forEach(b => b.onclick = () => customerForm(list.find(c => c.id === +b.dataset.e)));
@@ -1463,7 +1512,7 @@ async function vSettings() {
   <div class="card"><div class="row"><h2 style="margin:0">Akun Kasir</h2><span class="spacer"></span><button class="btn sm" id="uNew">+ Tambah akun</button></div>
     <table style="margin-top:10px"><tr><th>Username</th><th>Nama</th><th>Peran</th><th>Status</th><th></th></tr>
     ${users.map(u => `<tr><td>${esc(u.username)}</td><td>${esc(u.name)}</td><td>${u.role}</td><td><span class="badge ${u.active ? "paid" : "off"}">${u.active ? "Aktif" : "Nonaktif"}</span></td>
-    <td class="num"><button class="btn sec sm" data-pw="${u.id}">Reset password</button> ${u.id !== S.user.id ? `<button class="btn sec sm" data-tg="${u.id}">${u.active ? "Nonaktifkan" : "Aktifkan"}</button>` : ""}</td></tr>`).join("")}</table></div>` : ""}
+    <td class="num"><button class="btn sec sm" data-rn="${u.id}">Ubah nama</button> <button class="btn sec sm" data-pw="${u.id}">Reset password</button> ${u.id !== S.user.id ? `<button class="btn sec sm" data-tg="${u.id}">${u.active ? "Nonaktifkan" : "Aktifkan"}</button>` : ""}</td></tr>`).join("")}</table></div>` : ""}
   <div class="card" style="margin-top:14px;max-width:420px"><h2>Ganti Password Saya</h2>
     <div class="field"><input class="input" type="password" id="pOld" placeholder="Password lama"></div>
     <div class="field"><input class="input" type="password" id="pNew" placeholder="Password baru (min. 6 karakter)"></div>
@@ -1488,6 +1537,7 @@ async function vSettings() {
       $("#uC", m).onclick = closeModal;
       $("#uS", m).onclick = guard(async () => { await api("POST", "/api/users", { username: $("#uU", m).value, name: $("#uN", m).value, password: $("#uP", m).value, role: $("#uR", m).value }); closeModal(); vSettings(); });
     };
+    $$("[data-rn]").forEach(b => b.onclick = guard(async () => { const u = users.find(x => x.id === +b.dataset.rn), n = prompt("Nama baru untuk akun ini:", u.name); if (n && n.trim() && n.trim() !== u.name) { await api("PUT", "/api/users/" + u.id, { name: n.trim() }); if (u.id === S.user.id) S.user.name = n.trim(); toast("Nama diganti (invoice lama ikut diperbarui)"); vSettings(); } }));
     $$("[data-pw]").forEach(b => b.onclick = guard(async () => { const p = prompt("Password baru (min. 6 karakter):"); if (p) { await api("PUT", "/api/users/" + b.dataset.pw, { password: p }); toast("Password diganti"); } }));
     $$("[data-tg]").forEach(b => b.onclick = guard(async () => { const u = users.find(x => x.id === +b.dataset.tg); await api("PUT", "/api/users/" + u.id, { active: u.active ? 0 : 1 }); vSettings(); }));
   }
