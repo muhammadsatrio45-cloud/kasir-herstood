@@ -190,7 +190,12 @@ h2:before{content:"♡ ";color:var(--primary)}
 .invoice table th{color:var(--muted);border-bottom:2px solid var(--ink);padding:5px 6px}
 .invoice td{border-bottom:1.5px dashed var(--border);padding:5px 6px}
 .invoice .tot{margin-left:auto;width:290px;max-width:100%;margin-top:10px}
-.invoice .tot .trow{padding:2px 0}
+.invoice .tot .trow{padding:2px 0;align-items:baseline}
+.invoice .tot .trow span{white-space:nowrap}
+.invoice .tot .trow span:first-child{white-space:normal;min-width:0}
+.invoice .tot .trow span:last-child{flex-shrink:0}
+.invoice.wide .tot{width:340px}
+.invoice .inv-ribbon b,.invoice td.num,.invoice th.num{white-space:nowrap}
 .invoice .tot .grand{font-weight:700;font-size:16px;border-top:2px solid var(--ink);margin-top:4px;padding-top:5px}
 .invoice .tot .dp{background:color-mix(in srgb,var(--primary) 16%,#fff);border:2px dashed var(--ink);border-radius:10px;padding:4px 8px;margin-top:6px;font-weight:700}
 .invoice .tot .sisa{font-weight:800;font-size:15px;color:var(--accent);border-top:2px solid var(--ink);margin-top:5px;padding-top:5px}
@@ -353,6 +358,7 @@ const ICON = {
   pelanggan: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
   inventory: '<path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><polyline points="3.3 7.5 12 12.5 20.7 7.5"/><line x1="12" y1="22" x2="12" y2="12.5"/>',
   rekap: '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/>',
+  kalkulator: '<rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="11" x2="8" y2="11.01"/><line x1="12" y1="11" x2="12" y2="11.01"/><line x1="16" y1="11" x2="16" y2="11.01"/><line x1="8" y1="15" x2="8" y2="15.01"/><line x1="12" y1="15" x2="12" y2="15.01"/><line x1="16" y1="15" x2="16" y2="15.01"/>',
   keuangan: '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
   laporan: '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
   pengaturan: '<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>',
@@ -453,7 +459,7 @@ async function start() {
   applyTheme();
   $("#login").classList.add("hidden"); $("#app").classList.remove("hidden");
   $("#userInfo").textContent = `${S.user.name} (${S.user.role})`;
-  const items = [["dashboard", "Dashboard"], ["order", "Order"], ["rekap", "Rekap Order"], ["produk", "Master Produk"], ...(isAdmin() ? [["inventory", "Inventory"]] : []), ["pelanggan", "Pelanggan"], ...(isAdmin() ? [["keuangan", "Keuangan"], ["laporan", "Laporan"]] : []), ["pengaturan", "Pengaturan"]];
+  const items = [["dashboard", "Dashboard"], ["order", "Order"], ["rekap", "Rekap Order"], ["produk", "Master Produk"], ...(isAdmin() ? [["inventory", "Inventory"]] : []), ["pelanggan", "Pelanggan"], ...(isAdmin() ? [["kalkulator", "Kalkulator HPP"], ["keuangan", "Keuangan"], ["laporan", "Laporan"]] : []), ["pengaturan", "Pengaturan"]];
   $("#nav").innerHTML = items.map(([k, l]) => `<button data-v="${k}">${svg(k)}<span>${l}</span></button>`).join("");
   $$("#nav button").forEach(b => b.onclick = () => { go(b.dataset.v); $("#side").classList.remove("open"); });
   go(S.view || "order"); say("Halo " + S.user.name + "! ♡");
@@ -488,8 +494,8 @@ async function refreshSummary() {
 }
 
 /* ============ router ============ */
-const VIEWS = { dashboard: vDashboard, order: vOrder, rekap: vRekap, produk: vMaster, inventory: vInventory, pelanggan: vCustomers, keuangan: vFinance, laporan: vReport, pengaturan: vSettings };
-const TITLES = { dashboard: "Dashboard", order: "Order", produk: "Master Produk", pelanggan: "Pelanggan", keuangan: "Keuangan", laporan: "Laporan", pengaturan: "Pengaturan" };
+const VIEWS = { dashboard: vDashboard, order: vOrder, rekap: vRekap, produk: vMaster, inventory: vInventory, pelanggan: vCustomers, kalkulator: vHpp, keuangan: vFinance, laporan: vReport, pengaturan: vSettings };
+const TITLES = { dashboard: "Dashboard", order: "Order", produk: "Master Produk", pelanggan: "Pelanggan", kalkulator: "Kalkulator HPP", keuangan: "Keuangan", laporan: "Laporan", pengaturan: "Pengaturan" };
 function go(v) {
   S.view = v; $$("#nav button").forEach(b => b.classList.toggle("active", b.dataset.v === v));
   $("#pageTitle").textContent = TITLES[v]; $("#topActions").innerHTML = ""; $("#view").innerHTML = "";
@@ -958,7 +964,7 @@ const openInvoice = guard(async (id) => {
       const btn = $("#iPng", m); btn.disabled = true; btn.textContent = "Membuat gambar…";
       try {
         if (!window.modernScreenshot) await new Promise((ok, no) => { const sc = document.createElement("script"); sc.src = "/modern-screenshot.js"; sc.onload = ok; sc.onerror = () => no(new Error("Gagal memuat pembuat gambar")); document.head.appendChild(sc); });
-        if (document.fonts && document.fonts.ready) await document.fonts.ready;
+        if (document.fonts) { try { await Promise.all(["300","400","500","600","700"].map(w => document.fonts.load(w + " 14px Fredoka", "Rp 0123456789 ABCabc"))); } catch (e) {} await document.fonts.ready; }
         // selalu dibuat dengan tampilan lebar (bukan tampilan sempit HP) supaya gambarnya lega dan rapi
         const box = document.createElement("div"); box.style.cssText = "position:fixed;left:-10000px;top:0;width:900px";
         const clone = $(".invoice", m).cloneNode(true); clone.classList.add("wide"); clone.style.width = "900px"; box.appendChild(clone); document.body.appendChild(box);
@@ -1106,6 +1112,54 @@ function stockForm(x) {
     await api("POST", `/api/inventory/${x.id}/stock`, { delta: $("#sDelta", m).value, reason: $("#sReason", m).value, cost: $("#sCost", m).value });
     closeModal(); toast("Stok diperbarui"); vInventory();
   });
+}
+
+/* ============ kalkulator HPP ============ */
+const HPP_CUR = [["CNY", "Yuan (China)", 2300], ["KRW", "Won (Korea)", 11.5], ["THB", "Baht (Thailand)", 480], ["JPY", "Yen (Jepang)", 105], ["USD", "Dolar AS", 16500], ["LAIN", "Lainnya", 0]];
+async function vHpp() {
+  if (!isAdmin()) return;
+  const KEY = "hpp_kurs", rd = () => { try { return JSON.parse(localStorage.getItem(KEY) || "{}"); } catch { return {}; } };
+  const wr = (c, v) => { try { const o = rd(); o[c] = v; localStorage.setItem(KEY, JSON.stringify(o)); } catch { } };
+  const num = id => +($("#" + id).value) || 0, set = (id, v) => { $("#" + id).textContent = v; };
+  const kurs0 = c => { const k = rd()[c]; return k ?? HPP_CUR.find(x => x[0] === c)[2]; };
+  const fld = (id, l, extra = "", hint = "") => `<div class="field"><label>${l}</label><input class="input" type="number" min="0" step="any" id="${id}" ${extra}>${hint ? `<span class="muted sm">${hint}</span>` : ""}</div>`;
+  $("#view").innerHTML = `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(340px,1fr));align-items:start">
+    <div class="card"><h2>Hitung HPP Barang</h2>
+      <div class="two"><div class="field"><label>Nama barang (opsional)</label><input class="input" id="hName" placeholder="mis. Lucky Clover M5"></div>${fld("hQty", "Jumlah (pcs)", 'value="1"', "Biaya di bawah = untuk seluruh jumlah ini")}</div>
+      <div class="two"><div class="field"><label>Mata uang</label><select class="input" id="hCur">${HPP_CUR.map(c => `<option value="${c[0]}">${c[1]}</option>`).join("")}</select></div>${fld("hKurs", "Kurs (Rp per 1 mata uang)", 'value=""', "Tersimpan otomatis per mata uang")}</div>
+      <div class="two">${fld("hBuy", "Harga beli (mata uang asing)")}<div class="field"><label>Harga beli (Rp)</label><div class="input" id="hBuyIdr" style="background:var(--bg)">Rp 0</div></div></div>
+      ${fld("hKg", "Berat (kg)", "", "Dipakai untuk menghitung ongkir per kg")}
+      <div class="two">${fld("hWh", "Fee WH (Rp)")}${fld("hPack", "Fee Packing (Rp)")}</div>
+      <div class="two">${fld("hShip1", "Ongkir negara → Indonesia (Rp)")}${fld("hRate1", "…atau tarif / kg (Rp)", "", "Isi tarif, total otomatis = berat × tarif")}</div>
+      <div class="two">${fld("hShip2", "Ongkir WH → Indo (Rp)")}${fld("hRate2", "…atau tarif / kg (Rp)")}</div>
+      <div class="two">${fld("hTax", "Tax (Rp)")}${fld("hOther", "Biaya lain (Rp)")}</div>
+      <button class="btn sec" id="hReset">Kosongkan</button></div>
+    <div class="card"><h2>Hasil</h2>
+      <table><tr><td>Harga beli (Rp)</td><td class="num" id="rBuy"></td></tr><tr><td>Fee WH</td><td class="num" id="rWh"></td></tr><tr><td>Fee Packing</td><td class="num" id="rPack"></td></tr>
+      <tr><td>Ongkir negara → ID</td><td class="num" id="rS1"></td></tr><tr><td>Ongkir WH → Indo</td><td class="num" id="rS2"></td></tr><tr><td>Tax</td><td class="num" id="rTax"></td></tr><tr><td>Biaya lain</td><td class="num" id="rOther"></td></tr></table>
+      <div style="margin-top:12px;padding:12px;border:2px solid var(--text);border-radius:14px;background:var(--bg)"><span class="muted sm">TOTAL HPP</span><div style="font-size:26px;font-weight:700" id="rTotal"></div><div class="muted" id="rPer"></div></div>
+      <div class="row" style="margin-top:10px"><button class="btn sm" id="hCopy">Salin total HPP per pcs</button></div>
+      <h3 style="margin:16px 0 6px">Cek untung (opsional)</h3>
+      ${fld("hSell", "Harga jual per pcs (Rp)")}
+      <div id="rProfit" class="muted"></div>
+      <p class="muted sm" style="margin:12px 0 0">Hasil ini cuma alat bantu hitung. Setelah ketemu HPP per pcs, isi kolom <b>Modal</b> saat input order atau di Master Produk supaya laba di Keuangan akurat.</p></div></div>`;
+  const R = n => fmt(Math.round(n));
+  const calc = () => {
+    const qty = Math.max(1, num("hQty")), buy = num("hKurs") * num("hBuy"), wh = num("hWh"), pack = num("hPack"), s1 = num("hShip1"), s2 = num("hShip2"), tax = num("hTax"), oth = num("hOther");
+    const total = buy + wh + pack + s1 + s2 + tax + oth, per = total / qty, sell = num("hSell");
+    $("#hBuyIdr").textContent = R(buy); set("rBuy", R(buy)); set("rWh", R(wh)); set("rPack", R(pack)); set("rS1", R(s1)); set("rS2", R(s2)); set("rTax", R(tax)); set("rOther", R(oth));
+    set("rTotal", R(total)); set("rPer", qty > 1 ? `${R(per)} per pcs (${qty} pcs)` : "");
+    $("#rProfit").innerHTML = sell > 0 ? `Laba per pcs: <b>${R(sell - per)}</b> · Margin: <b>${(((sell - per) / sell) * 100).toFixed(1)}%</b> · Laba semua: <b>${R((sell - per) * qty)}</b>` : "Isi harga jual untuk melihat laba dan margin.";
+    return per;
+  };
+  const curSel = () => { $("#hKurs").value = kurs0($("#hCur").value) || ""; calc(); };
+  $("#hCur").onchange = curSel; curSel();
+  $("#hKurs").addEventListener("input", () => { wr($("#hCur").value, num("hKurs")); });
+  $$("#view input.input").forEach(el => el.addEventListener("input", calc));
+  [["hRate1", "hShip1"], ["hRate2", "hShip2"]].forEach(([r, t]) => { $("#" + r).addEventListener("input", () => { $("#" + t).value = num("hKg") && num(r) ? Math.round(num("hKg") * num(r)) : ""; calc(); }); });
+  $("#hKg").addEventListener("input", () => { [["hRate1", "hShip1"], ["hRate2", "hShip2"]].forEach(([r, t]) => { if (num(r)) $("#" + t).value = Math.round(num("hKg") * num(r)); }); calc(); });
+  $("#hReset").onclick = () => { $$("#view input.input").forEach(el => { if (!["hKurs"].includes(el.id)) el.value = el.id === "hQty" ? 1 : ""; }); calc(); };
+  $("#hCopy").onclick = () => copyText(String(Math.round(calc()))).then(() => toast("HPP per pcs tersalin"));
 }
 
 /* ============ pelanggan ============ */
@@ -1401,6 +1455,10 @@ async function vSettings() {
       <div class="field"><label>Karakter Herstood (sidebar, dashboard, invoice)</label><select class="input" data-k="mascot_on"><option value="1" ${+s.mascot_on !== 0 ? "selected" : ""}>Tampil</option><option value="0" ${+s.mascot_on === 0 ? "selected" : ""}>Sembunyikan</option></select></div>
       <p class="muted sm" style="margin:0">Perubahan langsung terlihat. Klik Simpan agar berlaku untuk semua kasir.</p></div>
   </div>
+  <div class="card" style="margin-top:14px"><h2>Halaman Cek Order untuk Pelanggan</h2>
+      <p class="muted" style="margin:0 0 8px">Pelanggan bisa lihat status ordernya tanpa login (tanpa harga, nama disamarkan). Bagikan link ini:</p>
+      <div class="row"><input class="input" id="trLink" readonly value="${location.origin}/track" style="max-width:420px"><button class="btn sm" id="trCopy">Salin link</button><a class="btn sec sm" href="/track" target="_blank" rel="noopener">Buka</a></div>
+      <div class="field" style="margin:10px 0 0;max-width:260px"><label>Status halaman</label><select class="input" data-k="track_enabled"><option value="1" ${+s.track_enabled !== 0 ? "selected" : ""}>Aktif</option><option value="0" ${+s.track_enabled === 0 ? "selected" : ""}>Dimatikan</option></select></div></div>
   <div class="row" style="margin:14px 0"><button class="btn" id="sSave">Simpan Pengaturan</button><button class="btn sec" id="sBackup">Unduh Backup Database</button></div>
   <div class="card"><div class="row"><h2 style="margin:0">Akun Kasir</h2><span class="spacer"></span><button class="btn sm" id="uNew">+ Tambah akun</button></div>
     <table style="margin-top:10px"><tr><th>Username</th><th>Nama</th><th>Peran</th><th>Status</th><th></th></tr>
@@ -1411,8 +1469,9 @@ async function vSettings() {
     <div class="field"><input class="input" type="password" id="pNew" placeholder="Password baru (min. 6 karakter)"></div>
     <button class="btn" id="pSave">Ganti Password</button></div>`;
   if (isAdmin()) {
-    $$("[data-k]").forEach(el => el.oninput = el.onchange = () => { s[el.dataset.k] = (el.type === "number" || ["dark_mode", "mascot_on"].includes(el.dataset.k)) ? +el.value : el.value; applyTheme(s); });
+    $$("[data-k]").forEach(el => el.oninput = el.onchange = () => { s[el.dataset.k] = (el.type === "number" || ["dark_mode", "mascot_on", "track_enabled"].includes(el.dataset.k)) ? +el.value : el.value; applyTheme(s); });
     $$("[data-preset]").forEach(b => b.onclick = () => { Object.assign(s, PRESETS[b.dataset.preset]); applyTheme(s); $$("[type=color]").forEach(c => c.value = s[c.dataset.k]); });
+    $("#trCopy").onclick = () => copyText($("#trLink").value).then(() => toast("Link tersalin"));
     $("#sSave").onclick = guard(async () => {
       s.payment_methods = $("#sMethods").value.split(",").map(x => x.trim()).filter(Boolean);
       s.countries = $("#sCountries").value.split(",").map(x => x.trim()).filter(Boolean);

@@ -42,4 +42,5 @@ export const DEFAULT_SETTINGS = {
   countries: ["China", "Korea", "Thailand", "Jepang"],
   pay_people: [{ name: "Awaaa", pct: 45 }, { name: "Iyooow", pct: 35 }, { name: "Ipaaaw", pct: 20 }],
   capital_pct: 0,
+  track_enabled: 1,
 };

@@ -589,6 +589,24 @@ async function hBackup(c) {
   return new Response(JSON.stringify(data), { headers: { "Content-Type": "application/json", "Content-Disposition": `attachment; filename="backup-kasir-${todayWib()}.json"`, "Cache-Control": "no-store" } });
 }
 
+/* ---------- halaman pelacakan publik (tanpa login, tanpa harga) ---------- */
+const maskName = n => String(n || "").split(/\s+/).filter(Boolean).map(w => [...w].slice(0, 2).join("") + "***").join(" ");
+async function hTrack(c) {
+  const s = await getSettings(c.env);
+  if (+s.track_enabled === 0) throw new ApiError("Halaman pelacakan sedang dinonaktifkan", 403);
+  const q = String(c.query.get("q") || "").trim().slice(0, 60), month = String(c.query.get("month") || "");
+  if (month && !/^\d{4}-\d{2}$/.test(month)) throw new ApiError("Bulan tidak valid");
+  if (q && q.length < 3) throw new ApiError("Ketik minimal 3 huruf nama / no invoice");
+  if (!q && !month) return { rows: [], brand: s.store_name, hint: true };
+  const like = "%" + q.replace(/[\\%_]/g, m => "\\" + m) + "%";
+  const where = [], args = [];
+  if (month) { where.push("substr(o.created_at,1,7)=?"); args.push(month); }
+  if (q) { where.push("(o.number LIKE ? ESCAPE '\\' OR o.customer_name LIKE ? ESCAPE '\\')"); args.push(like, like); }
+  const orders = await all(c.env, `SELECT o.id,o.number,o.created_at,o.customer_name,o.status FROM orders o WHERE ${where.join(" AND ")} ORDER BY o.id DESC LIMIT 80`, ...args);
+  const items = orders.length ? await all(c.env, `SELECT order_id,country,code,name,qty FROM order_items WHERE order_id IN (${orders.map(() => "?").join(",")}) ORDER BY id`, ...orders.map(o => o.id)) : [];
+  return { brand: s.store_name, rows: orders.map(o => ({ number: o.number, date: o.created_at.slice(0, 10), customer: maskName(o.customer_name), status: o.status, items: items.filter(i => i.order_id === o.id).map(i => ({ country: i.country, code: i.code, name: i.name, qty: i.qty })) })) };
+}
+
 /* ---------- routing ---------- */
 const ROUTES = [
   ["GET", /^\/api\/inventory\/legacy$/, hInvLegacy, "admin"], ["POST", /^\/api\/inventory\/(\d+)\/link-old$/, hInvLinkOld, "admin"],
@@ -596,7 +614,7 @@ const ROUTES = [
   ["POST", /^\/api\/payroll$/, hPayrollCreate, "admin"], ["DELETE", /^\/api\/payroll\/(\d+)$/, hPayrollDelete, "admin"], ["GET", /^\/api\/order-rows$/, hOrderRows, "user"],
   ["GET", /^\/api\/inventory$/, hInvList, "user"], ["POST", /^\/api\/inventory$/, hInvCreate, "admin"], ["PUT", /^\/api\/inventory\/(\d+)$/, hInvUpdate, "admin"],
   ["POST", /^\/api\/inventory\/(\d+)\/stock$/, hInvStock, "admin"], ["DELETE", /^\/api\/inventory\/(\d+)$/, hInvDelete, "admin"], ["GET", /^\/api\/inventory\/(\d+)\/moves$/, hInvMoves, "admin"],
-  ["POST", /^\/api\/login$/, hLogin, null], ["GET", /^\/api\/public-settings$/, hPublicSettings, null],
+  ["POST", /^\/api\/login$/, hLogin, null], ["GET", /^\/api\/public-settings$/, hPublicSettings, null], ["GET", /^\/api\/track$/, hTrack, null],
   ["POST", /^\/api\/logout$/, hLogout, "user"], ["GET", /^\/api\/bootstrap$/, hBootstrap, "user"],
   ["GET", /^\/api\/products$/, hProductsList, "user"], ["POST", /^\/api\/products$/, hProductCreate, "admin"],
   ["PUT", /^\/api\/products\/(\d+)$/, hProductUpdate, "admin"], ["DELETE", /^\/api\/products\/(\d+)$/, hProductDelete, "admin"],

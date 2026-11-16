@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Cek Order · Herstoodio</title>
+<link rel="icon" href="/img/favicon.png">
+<style>
+@font-face{font-family:"Fredoka";src:url(/fonts/fredoka.woff2) format("woff2");font-weight:300 700;font-display:swap}
+:root{--pink:#ee3a82;--pink-d:#be123c;--ink:#231f1e;--bg:#fff0f6;--card:#fffaf6;--muted:#7a6a68;--line:#ecd9d3}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Fredoka",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink);background-image:radial-gradient(#f9b7d2 1.2px,transparent 1.2px);background-size:22px 22px;min-height:100vh}
+.wrap{max-width:860px;margin:0 auto;padding:18px 16px 40px}
+.head{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.head img{width:54px;height:54px;border-radius:15px;border:2px solid var(--ink);box-shadow:3px 3px 0 var(--ink)}
+.head h1{margin:0;font-size:24px;line-height:1.1}
+.head p{margin:2px 0 0;color:var(--muted);font-size:13px}
+.bar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.in{font:inherit;font-size:15px;padding:10px 14px;border:2px solid var(--ink);border-radius:14px;background:#fff;color:var(--ink);box-shadow:2px 2px 0 var(--ink);min-width:0}
+.in:focus{outline:3px solid #f9b7d2}
+#q{flex:1 1 240px}
+button.clr{font:inherit;font-size:13px;padding:10px 14px;border:2px solid var(--ink);border-radius:14px;background:var(--card);cursor:pointer;box-shadow:2px 2px 0 var(--ink)}
+.card{background:var(--card);border:2px solid var(--ink);border-radius:18px;box-shadow:4px 4px 0 var(--ink);margin-bottom:14px;overflow:hidden}
+.ch{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;padding:11px 14px;border-bottom:2px solid var(--ink);background:#fde3ee}
+.ch b.no{font-size:16px}
+.ch .who{font-weight:600}
+.ch .dt{color:var(--muted);font-size:13px}
+.badge{margin-left:auto;padding:3px 12px;border:2px solid var(--ink);border-radius:999px;font-size:13px;font-weight:600;background:#fff;white-space:nowrap}
+.s-baru{background:#dbeafe}.s-dikerjakan{background:#fef3c7}.s-siap{background:#f3e8ff}.s-selesai{background:#dcfce7}.s-batal{background:#fee2e2}
+.steps{display:flex;gap:4px;padding:10px 14px 2px}
+.steps i{flex:1;height:7px;border-radius:99px;background:var(--line)}
+.steps i.on{background:var(--pink)}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;color:var(--muted);font-weight:500;font-size:12px;padding:8px 14px 4px;text-transform:uppercase;letter-spacing:.04em}
+td{padding:7px 14px;border-top:1.5px dashed var(--line);vertical-align:top}
+th.n,td.n{text-align:right;white-space:nowrap}
+.cc{display:inline-block;border:1.5px solid var(--ink);border-radius:999px;padding:0 8px;font-size:12px;font-weight:600;background:#fff}
+.empty{text-align:center;color:var(--muted);padding:34px 10px}
+.note{font-size:12px;color:var(--muted);text-align:center;margin-top:18px}
+@media(max-width:520px){.badge{margin-left:0}th,td{padding-left:10px;padding-right:10px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head"><img src="/img/logo-h.jpg" alt=""><div><h1>Cek Order</h1><p id="brand">Herstoodio</p></div></div>
+  <div class="bar">
+    <input class="in" id="q" placeholder="Cari nama kamu / no invoice (min. 3 huruf)" autocomplete="off">
+    <input class="in" id="m" type="month">
+    <button class="clr" id="all" type="button">Semua bulan</button>
+  </div>
+  <div id="out"></div>
+  <p class="note">Nama pelanggan disamarkan demi privasi. Info status diperbarui langsung oleh admin.</p>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const ST = { baru: ["Order diterima", 1], dikerjakan: ["Sedang dibelikan", 2], siap: ["Siap dikirim", 3], selesai: ["Selesai", 4], batal: ["Dibatalkan", 0] };
+const CC = { china: "CN", korea: "KR", thailand: "TH", jepang: "JP", japan: "JP" };
+const cc = c => CC[String(c || "").toLowerCase()] || String(c || "").slice(0, 2).toUpperCase();
+const now = new Date(); $("#m").value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+let timer, seq = 0;
+async function load() {
+  const q = $("#q").value.trim(), m = $("#m").value, my = ++seq, out = $("#out");
+  if (q && q.length < 3) { out.innerHTML = '<div class="empty">Ketik minimal 3 huruf ya kak ♡</div>'; return; }
+  if (!q && !m) { out.innerHTML = '<div class="empty">Pilih bulan atau ketik nama / no invoice dulu ya kak ♡</div>'; return; }
+  out.innerHTML = '<div class="empty">Memuat…</div>';
+  try {
+    const r = await fetch(`/api/track?q=${encodeURIComponent(q)}&month=${encodeURIComponent(m)}`);
+    const d = await r.json(); if (my !== seq) return;
+    if (!r.ok) { out.innerHTML = `<div class="empty">${esc(d.error || "Gagal memuat")}</div>`; return; }
+    if (d.brand) $("#brand").textContent = d.brand;
+    if (!d.rows.length) { out.innerHTML = '<div class="empty">Belum ada order yang cocok ♡</div>'; return; }
+    out.innerHTML = d.rows.map(o => { const [lbl, n] = ST[o.status] || [o.status, 0];
+      return `<div class="card"><div class="ch"><b class="no">${esc(o.number)}</b><span class="who">${esc(o.customer)}</span><span class="dt">${esc(o.date)}</span><span class="badge s-${esc(o.status)}">${esc(lbl)}</span></div>
+      ${n ? `<div class="steps">${[1, 2, 3, 4].map(i => `<i class="${i <= n ? "on" : ""}"></i>`).join("")}</div>` : ""}
+      <table><tr><th class="cd">Negara</th><th>Kode</th><th>Deskripsi</th><th class="n">Qty</th></tr>
+      ${o.items.map(i => `<tr><td class="cd">${i.country ? `<span class="cc">${esc(cc(i.country))}</span>` : ""}</td><td><b>${esc(i.code || "-")}</b></td><td>${esc(i.name)}</td><td class="n">${i.qty}</td></tr>`).join("")}</table></div>`; }).join("");
+  } catch { if (my === seq) out.innerHTML = '<div class="empty">Tidak bisa terhubung, coba lagi ya kak.</div>'; }
+}
+const later = () => { clearTimeout(timer); timer = setTimeout(load, 350); };
+$("#q").oninput = later; $("#m").onchange = load;
+$("#all").onclick = () => { $("#m").value = ""; load(); };
+load();
+</script>
+</body>
+</html>
