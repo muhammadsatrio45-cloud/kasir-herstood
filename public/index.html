@@ -36,7 +36,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 body.no-mascot .mascot-wrap{display:none!important}
 /* layout */
 #app{display:flex;height:100vh}
-aside{width:236px;color:#fff;display:flex;flex-direction:column;padding:16px 12px;flex-shrink:0;border-right:2px solid var(--ink);
+aside{width:236px;color:#fff;display:flex;flex-direction:column;padding:16px 12px;flex-shrink:0;overflow-y:auto;border-right:2px solid var(--ink);
   background-color:var(--sidebar);
   background-image:linear-gradient(90deg,rgba(255,255,255,.09) 50%,transparent 50%),linear-gradient(rgba(255,255,255,.09) 50%,transparent 50%);background-size:38px 38px}
 .brand{display:flex;align-items:center;gap:10px;padding:2px 6px 16px}
@@ -44,7 +44,8 @@ aside{width:236px;color:#fff;display:flex;flex-direction:column;padding:16px 12p
 .brand .bn{font-weight:700;font-size:18px;line-height:1.05;color:#fff;text-shadow:1.5px 1.5px 0 var(--ink)}
 .brand .bn{min-width:0}
 .brand small{display:block;font-weight:400;font-size:11px;opacity:.95;text-shadow:none;margin-top:2px;white-space:normal;line-height:1.2}
-nav{display:flex;flex-direction:column;gap:5px}
+nav{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+@media(max-height:900px){nav{gap:3px}nav button{padding:7px 12px}.brand{padding-bottom:10px}.mascot-side img{width:46px;height:46px}.side-bottom{gap:8px}}
 nav button{display:flex;align-items:center;gap:12px;background:none;border:2px solid transparent;color:#fff;padding:9px 12px;border-radius:14px;cursor:pointer;text-align:left;font-size:14px;font-weight:500}
 nav button:hover{background:rgba(255,255,255,.16)}
 nav button.active{background:var(--card);color:var(--ink);border-color:var(--ink);box-shadow:3px 3px 0 var(--ink);font-weight:600}
@@ -64,11 +65,11 @@ nav svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2;stro
 main{flex:1;min-width:0;display:flex;flex-direction:column}
 .topbar{display:flex;align-items:center;gap:12px;padding:16px 24px;flex-wrap:wrap}
 .topbar{position:relative}
-.bellbox{position:relative}
+.bellbox{position:relative;margin-right:8px}
 #bell{position:relative;padding:8px 10px;display:inline-flex}
 #bell svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.bn{position:absolute;top:-7px;right:-7px;min-width:20px;height:20px;padding:0 5px;border-radius:99px;background:var(--primary);color:#fff;border:2px solid var(--text);font-size:11px;font-weight:700;display:grid;place-items:center;line-height:1}
-.bn:empty{display:none}
+.nbadge{position:absolute;top:-7px;right:-7px;min-width:20px;height:20px;padding:0 5px;border-radius:99px;background:var(--primary);color:#fff;border:2px solid var(--text);font-size:11px;font-weight:700;display:grid;place-items:center;line-height:1}
+.nbadge:empty{display:none}
 .bpanel{position:absolute;right:0;top:calc(100% + 8px);width:340px;max-width:calc(100vw - 24px);max-height:70vh;overflow:auto;background:var(--card);border:2px solid var(--text);border-radius:16px;box-shadow:4px 4px 0 var(--text);z-index:60;padding:6px}
 .bpanel[hidden]{display:none}
 .bpanel h4{margin:10px 8px 4px;font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
@@ -440,7 +441,7 @@ async function refreshNotif() {
     NF.data = await api("GET", "/api/notifications");
     let seen = null; try { seen = localStorage.getItem("notif_seen"); } catch { }
     if (seen === null) seenSet(NF.data.max_id);
-    const n = nfCount(); $("#bell").innerHTML = svg("bell") + `<span class="bn">${n > 9 ? "9+" : n || ""}</span>`;
+    const n = nfCount(); $("#bell").innerHTML = svg("bell") + `<span class="nbadge">${n > 9 ? "9+" : n || ""}</span>`;
     if (!$("#bpanel").hidden) drawNotif();
   } catch (e) { }
 }
@@ -572,12 +573,12 @@ async function start() {
   applyTheme();
   $("#login").classList.add("hidden"); $("#app").classList.remove("hidden");
   $("#userInfo").textContent = `${S.user.name} (${S.user.role})`;
-  const items = [["dashboard", "Dashboard"], ["order", "Order"], ["rekap", "Rekap Order"], ["produk", "Master Produk"], ["inventory", "Inventory"], ["pelanggan", "Pelanggan"], ["kalkulator", "Kalkulator HPP"], ["update", "Update"], ...(isAdmin() ? [["keuangan", "Keuangan"], ["laporan", "Laporan"]] : []), ["pengaturan", "Pengaturan"]];
+  const items = [["dashboard", "Dashboard"], ["order", "Order"], ["rekap", "Rekap Order"], ["produk", "Master Produk"], ["inventory", "Inventory"], ["pelanggan", "Pelanggan"], ["kalkulator", "Kalkulator HPP"], ...(isAdmin() ? [["keuangan", "Keuangan"], ["laporan", "Laporan"]] : []), ["pengaturan", "Pengaturan"], ["update", "Update"]];
   $("#nav").innerHTML = items.map(([k, l]) => `<button data-v="${k}">${svg(k)}<span>${l}</span></button>`).join("");
   $$("#nav button").forEach(b => b.onclick = () => { go(b.dataset.v); $("#side").classList.remove("open"); });
   go(S.view || "order"); say("Halo " + S.user.name + "! ♡");
   $("#bell").onclick = () => { const bp = $("#bpanel"); bp.hidden = !bp.hidden; if (!bp.hidden) { refreshNotif(); drawNotif(); } };
-  NF.data = null; $("#bell").innerHTML = svg("bell") + '<span class="bn"></span>'; refreshNotif();
+  NF.data = null; $("#bell").innerHTML = svg("bell") + '<span class="nbadge"></span>'; refreshNotif();
   clearInterval(S.timer);
   S.timer = setInterval(() => { if (document.hidden || modalEl) return; if (S.view === "order") loadOrders(true); refreshSummary(); }, 30000);
   if (S.user.must_change) forcePassword();
