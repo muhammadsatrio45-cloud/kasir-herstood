@@ -428,13 +428,51 @@ function openModal(html, cls = "") {
 function closeModal() { if (modalEl) { modalEl.remove(); modalEl = null; } }
 document.addEventListener("keydown", e => { if (e.key === "Escape" && !(S.user && S.user.must_change)) closeModal(); });
 
+/* ============ kesalahan kirim ============ */
+function incidentForm(o, after) {
+  const KINDS = [["salah_kirim", "Salah kirim (barang lain terkirim)"], ["kurang", "Barang kurang"], ["rusak", "Barang rusak"], ["hilang", "Barang hilang"]];
+  const wrong = [];   // {source, name, code, qty}
+  const m = openModal(`<h3>⚠ Catat kesalahan kirim · ${esc(o.number)}</h3>
+    <div class="field"><label>Jenis</label><select class="input" id="xKind">${KINDS.map(k => `<option value="${k[0]}">${k[1]}</option>`).join("")}</select></div>
+    <div class="field"><label>Barang yang HARUS dikirim ulang</label><div id="xResend">${o.items.map((i, n) => `<label class="row" style="gap:8px;margin:4px 0"><input type="checkbox" data-rs="${n}"> <span style="flex:1">${i.code ? `<b>${esc(i.code)}</b> ` : ""}${esc(i.name)}</span><input class="input" type="number" min="1" value="${i.qty}" data-rq="${n}" style="width:80px"></label>`).join("")}</div></div>
+    <div class="field"><label>Barang rugi (salah terkirim / rusak / hilang) — dihitung sebesar modalnya</label><div id="xWrong"></div>
+      <div class="row" style="margin-top:6px"><button class="btn sec sm" id="xAddOrder">+ Dari item di order ini</button><button class="btn sec sm" id="xAddMaster">+ Produk lain (Master)</button></div>
+      <datalist id="xDl">${S.products.map(p => `<option value="${esc((p.code ? p.code + " · " : "") + p.name)}"></option>`).join("")}</datalist></div>
+    <div class="two"><div class="field"><label>Ongkir kirim ulang (Rp)</label><input class="input" type="number" min="0" id="xShip"></div>${isAdmin() ? `<div class="field"><label>Nominal kerugian manual (opsional)</label><input class="input" type="number" min="0" id="xLoss" placeholder="kosongkan = otomatis dari modal"></div>` : "<div></div>"}</div>
+    <label class="row" style="gap:8px;margin:6px 0"><input type="checkbox" id="xStock" checked> Kurangi stok Inventory untuk barang rugi (jika ada di Inventory)</label>
+    <div class="field"><label>Catatan</label><input class="input" id="xNote" placeholder="mis. customer sudah dikabari"></div>
+    <p class="muted sm" style="margin:6px 0">Ongkir dan kerugian otomatis masuk Pengeluaran (kategori "Kerugian & kirim ulang") dan mengurangi laba bersih.${isAdmin() ? "" : " Nominal kerugian dihitung sistem dari modal barang."}</p>
+    <div class="row" style="margin-top:10px"><button class="btn" id="xSave">Simpan</button><button class="btn sec" id="xNo">Batal</button></div>`, "mid");
+  const draw = () => {
+    $("#xWrong", m).innerHTML = wrong.map((w, n) => `<div class="row" style="gap:6px;margin:4px 0">${w.source === "order"
+      ? `<select class="input" data-wo="${n}" style="flex:1">${o.items.map((i, k) => `<option value="${k}" ${i.name === w.name ? "selected" : ""}>${esc((i.code ? i.code + " · " : "") + i.name)}</option>`).join("")}</select>`
+      : `<input class="input" list="xDl" data-wm="${n}" value="${esc(w.label || "")}" placeholder="Ketik kode / nama produk…" style="flex:1">`}
+      <input class="input" type="number" min="1" value="${w.qty}" data-wq="${n}" style="width:80px"><button class="btn danger sm" data-wx="${n}">✕</button></div>`).join("") || `<span class="muted sm">Belum ada. Tambahkan barang yang salah terkirim / rusak / hilang.</span>`;
+    $$("[data-wo]", m).forEach(el => el.onchange = () => { const i = o.items[+el.value]; Object.assign(wrong[+el.dataset.wo], { name: i.name, code: i.code || "" }); });
+    $$("[data-wm]", m).forEach(el => el.oninput = () => { const w = wrong[+el.dataset.wm]; w.label = el.value; const pr = S.products.find(p => (p.code ? p.code + " · " : "") + p.name === el.value); if (pr) { w.name = pr.name; w.code = pr.code || ""; } else { w.name = el.value.trim(); w.code = ""; } });
+    $$("[data-wq]", m).forEach(el => el.oninput = () => { wrong[+el.dataset.wq].qty = Math.max(1, +el.value || 1); });
+    $$("[data-wx]", m).forEach(el => el.onclick = () => { wrong.splice(+el.dataset.wx, 1); draw(); });
+  };
+  draw();
+  $("#xAddOrder", m).onclick = () => { const i = o.items[0]; wrong.push({ source: "order", name: i.name, code: i.code || "", qty: 1 }); draw(); };
+  $("#xAddMaster", m).onclick = () => { wrong.push({ source: "master", name: "", code: "", qty: 1, label: "" }); draw(); };
+  $("#xNo", m).onclick = closeModal;
+  $("#xSave", m).onclick = guard(async () => {
+    const resend = $$("[data-rs]", m).filter(c => c.checked).map(c => { const i = o.items[+c.dataset.rs]; return { name: i.name, code: i.code || "", qty: +$(`[data-rq="${c.dataset.rs}"]`, m).value || 1 }; });
+    const wr = wrong.filter(w => w.name);
+    const r = await api("POST", `/api/orders/${o.id}/incident`, { kind: $("#xKind", m).value, resend, wrong: wr, ship: +$("#xShip", m).value || 0, loss_manual: isAdmin() ? +$("#xLoss", m).value || 0 : 0, deduct_stock: $("#xStock", m).checked, note: $("#xNote", m).value });
+    closeModal(); toast("Kesalahan tercatat" + (r.stock_adjusted.length ? " · stok dikurangi" : "") + (r.no_cost ? " · ⚠ modal barang rugi belum terisi, kerugian belum terhitung penuh" : ""));
+    refreshNotif(); if (after) await after();
+  });
+}
+
 /* ============ lonceng notifikasi ============ */
 const NF = { data: null };
 const seenGet = () => { try { return +localStorage.getItem("notif_seen") || 0; } catch { return 0; } };
 const seenSet = v => { try { localStorage.setItem("notif_seen", String(v)); } catch { } };
 function nfUnread() { const me = S.user ? S.user.name : ""; return NF.data ? NF.data.recent.filter(o => o.id > seenGet() && o.cashier !== me) : []; }
 function nfBackup() { return NF.data && NF.data.backup_days != null && (NF.data.backup_days < 0 || NF.data.backup_days >= 7); }
-function nfCount() { return NF.data ? nfUnread().length + NF.data.dups.length + NF.data.bill.length + (nfBackup() ? 1 : 0) : 0; }
+function nfCount() { return NF.data ? nfUnread().length + NF.data.dups.length + (NF.data.resend || []).length + NF.data.bill.length + (nfBackup() ? 1 : 0) : 0; }
 async function refreshNotif() {
   if (!S.user) return;
   try {
@@ -451,12 +489,13 @@ function drawNotif() {
   const others = d.recent.filter(o => !unIds.has(o.id)).slice(0, 5);
   const row = o => `<button class="bi ${unIds.has(o.id) ? "unread" : ""}" data-oo="${o.id}"><b>${esc(o.number)}</b> · ${esc(o.customer)}<small>${o.type === "Ready Stock" ? "Ready Stock" : "Jastip"} · oleh ${esc(o.cashier || "-")} · ${esc(o.at.slice(5, 16))}</small></button>`;
   $("#bpanel").innerHTML = (nfBackup() ? `<h4>Cadangan data</h4><button class="bi warn" data-go="pengaturan">💾 ${d.backup_days < 0 ? "Database belum pernah dicadangkan" : "Terakhir dicadangkan " + d.backup_days + " hari lalu"}<small>Buka Pengaturan → Unduh Backup Database</small></button>` : "")
+    + ((d.resend || []).length ? `<h4>Perlu kirim ulang (${d.resend.length})</h4>` + d.resend.map(r => `<button class="bi warn" data-oo="${r.order_id}">📦 <b>${esc(r.number)}</b> · ${esc(r.customer)}<small>${esc(r.kind)}: ${esc(r.items.map(x => x.name + " ×" + x.qty).join(", ") || "-")}</small></button>`).join("") : "")
     + (d.bill.length ? `<h4>Siap ditagih pelunasan (${d.bill.length})</h4>` + d.bill.map(o => `<button class="bi warn" data-oo="${o.id}">💌 <b>${esc(o.number)}</b> · ${esc(o.customer)}<small>Barang sudah siap dikirim · sisa ${fmt(o.sisa)}</small></button>`).join("") : "")
     + (d.dups.length ? `<h4>Perlu dicek (${d.dups.length})</h4>` + d.dups.map((g, i) => `<button class="bi warn" data-dup="${i}">⚠ <b>${esc(g.customer)}</b> — ${g.orders.length} order sama persis<small>${esc(g.items.map(x => x.name + " ×" + x.qty).join(", "))}</small></button>`).join("") : "")
     + (un.length ? `<h4>Order baru (${un.length})</h4>` + un.map(row).join("") : "")
     + (d.low.length ? `<h4>Stok menipis</h4>` + d.low.map(x => `<div class="bi" style="cursor:default"><b>${esc(x.code || "-")}</b> ${esc(x.name)}<small>sisa ${x.qty} pcs</small></div>`).join("") : "")
     + (others.length ? `<h4>Order terakhir</h4>` + others.map(row).join("") : "")
-    + (!d.dups.length && !un.length && !d.low.length && !others.length && !d.bill.length && !nfBackup() ? `<div class="bempty">Belum ada notifikasi ♡</div>` : "")
+    + (!d.dups.length && !un.length && !d.low.length && !others.length && !d.bill.length && !(d.resend || []).length && !nfBackup() ? `<div class="bempty">Belum ada notifikasi ♡</div>` : "")
     + (un.length ? `<div style="padding:6px"><button class="btn sec sm" id="bRead" style="width:100%">Tandai semua sudah dibaca</button></div>` : "");
   $$("[data-oo]", $("#bpanel")).forEach(b => b.onclick = () => { $("#bpanel").hidden = true; openInvoice(+b.dataset.oo); });
   $$("[data-go]", $("#bpanel")).forEach(b => b.onclick = () => { $("#bpanel").hidden = true; go(b.dataset.go); });
@@ -497,7 +536,8 @@ const UPDATES = [
     "Kotak 'Cara pembayaran' di invoice yang belum lunas (isi di Pengaturan).",
     "Log Aktivitas (admin): siapa melakukan apa. Pengingat backup database tiap 7 hari.",
     "Tombol 'Terapkan modal dari Master Produk' untuk mengisi modal item order lama yang masih Rp 0.",
-    "Menu Update ini."]],
+    "Menu Update ini.",
+    "Catat kesalahan kirim (salah kirim / kurang / rusak / hilang): kerugian dihitung dari modal barang, ongkir kirim ulang masuk Pengeluaran, dan pengingat 'Perlu kirim ulang' di lonceng."]],
   ["16 Nov 2026", "Kalkulator HPP, Cek Order, podium", [
     "Kalkulator HPP (berat dalam gram, kurs, fee WH/packing, ongkir, tax, biaya lain) + hitung laba & margin.",
     "Halaman Cek Order untuk pelanggan (tanpa login, tanpa harga): cari nama / no invoice, filter bulan.",
@@ -1061,15 +1101,19 @@ const openInvoice = guard(async (id) => {
         ${payMethod === "Tunai" ? `<div class="field" style="margin:0"><label>Uang diterima (opsional)</label><input class="input" type="number" id="iCash"></div>` : "<div></div>"}</div>
         <div class="field" style="margin:8px 0 0"><label>Tanggal diterima</label><input type="date" class="input" id="iPayDate" value="${payDate}" max="${todayStr()}" style="max-width:200px"></div>
         <div class="row" style="margin-top:10px">${canDp || o.paid_amount > 0 ? `<button class="btn" id="iPartial">${canDp ? "✓ Tandai DP diterima" : "✓ Catat cicilan"}</button>` : ""}<button class="btn ok" id="iLunas">✓ Tandai LUNAS${o.paid_amount > 0 || canDp ? ` (${fmt(remaining)})` : ""}</button></div></div>` : ""}
+      ${(o.incidents || []).length ? `<div class="card" style="margin-bottom:12px;border-color:var(--accent)"><b>⚠ Kesalahan / kirim ulang</b>${o.incidents.map(i => `<div class="row" style="margin-top:8px;align-items:flex-start"><div style="flex:1;min-width:200px"><b>${esc(i.kind_label)}</b> <span class="muted sm">${esc(i.created_at.slice(0, 16))} · ${esc(i.created_by)}</span>${i.resend.length ? `<div class="sm">Kirim ulang: ${esc(i.resend.map(x => x.name + " ×" + x.qty).join(", "))}</div>` : ""}${i.wrong.length ? `<div class="sm">Barang rugi: ${esc(i.wrong.map(x => x.name + " ×" + x.qty).join(", "))}</div>` : ""}<div class="sm muted">${i.ship ? "Ongkir kirim ulang " + fmt(i.ship) : ""}${isAdmin() && i.loss ? (i.ship ? " · " : "") + "Kerugian modal " + fmt(i.loss) : ""}${i.note ? " · " + esc(i.note) : ""}</div></div>${i.status === "open" ? `<button class="btn ok sm" data-idone="${i.id}">✓ Sudah dikirim ulang</button>` : `<span class="badge">Selesai</span>`}</div>`).join("")}</div>` : ""}
       ${o.status !== "batal" ? `<div class="row" style="margin-bottom:12px;align-items:flex-end"><div class="field" style="margin:0;flex:1;min-width:220px"><label>No. resi / ekspedisi (tampil di halaman Cek Order pelanggan)</label><input class="input" id="iTrack" value="${esc(o.tracking || "")}" placeholder="mis. JNE 1234567890"></div><button class="btn sec sm" id="iTrackSave">Simpan resi</button></div>` : ""}
       <div class="row">
         <button class="btn" id="iPrint">Cetak Struk 80mm</button><button class="btn sec" id="iPrintA">Cetak Invoice A5/A4</button><button class="btn sec" id="iPng">Unduh PNG</button><button class="btn sec" id="iWa">Salin teks WhatsApp</button>
         ${o.status !== "batal" ? `<button class="btn sec" id="iEdit">✎ Edit invoice</button>` : ""}
         ${o.status !== "batal" && nextI >= 0 && nextI < 3 ? `<button class="btn ok" id="iNext">Pindah ke ${COLS[nextI + 1][1]}</button>` : ""}
         ${o.status !== "batal" && o.status !== "selesai" ? `<button class="btn sec" id="iCancel">Batalkan</button>` : ""}
+        ${o.status !== "batal" ? `<button class="btn sec" id="iIncident">⚠ Catat kesalahan kirim</button>` : ""}
         ${isAdmin() && o.status !== "batal" && o.paid_amount - (o.refund || 0) > 0 ? `<button class="btn sec" id="iRefund">↩ Refund</button>` : ""}
         ${isAdmin() ? `<button class="btn danger sm" id="iDel">Hapus</button>` : ""}
       </div>`, "mid");
+    $("#iIncident", m)?.addEventListener("click", () => incidentForm(o, async () => { o = await api("GET", "/api/orders/" + o.id); draw(); }));
+    $$("[data-idone]", m).forEach(b => b.onclick = guard(async () => { await api("POST", "/api/incidents/" + b.dataset.idone + "/done", {}); o = await api("GET", "/api/orders/" + o.id); toast("Ditandai sudah dikirim ulang"); refreshNotif(); draw(); }));
     $("#iTrackSave", m)?.addEventListener("click", guard(async () => { o = await api("PUT", "/api/orders/" + o.id, { tracking: $("#iTrack", m).value }); toast("Resi tersimpan"); }));
     $("#iRefund", m)?.addEventListener("click", guard(async () => {
       const max = o.paid_amount - (o.refund || 0), a = parseInt(prompt(`Nominal refund (maks ${fmt(max)}):`, max), 10);
@@ -1507,7 +1551,7 @@ async function vFinance() {
       ${stat("Laba belum dibagi", P.kas_laba, `Gaji sudah dibayar ${fmt(P.gaji_dibayar)}`)}${stat("Dana customer (tertahan)", P.dp_tertahan, `${P.open_orders - P.held_orders} order belum lunas${P.held_orders ? ` · ${P.held_orders} lunas tapi belum Selesai` : ""}`)}
       ${stat("Modal tertanam", P.stok + P.hpp_open, `Stok ${fmt(P.stok)} · jastip berjalan ${fmt(P.hpp_open)}`)}${stat("Piutang (sisa tagihan)", P.piutang, "")}</div>
       <div class="card" style="margin-top:14px"><h2>Grafik ${f.year}</h2>${yearChart(f.months)}
-        <p class="muted sm" style="margin:8px 0 0">Penjualan ${fmt(tot.rev)} · Modal barang ${fmt(tot.hpp)} · Operasional ${fmt(tot.ops)} · <b>Laba bersih ${fmt(tot.net)}</b></p></div>
+        <p class="muted sm" style="margin:8px 0 0">Penjualan ${fmt(tot.rev)} · Modal barang ${fmt(tot.hpp)} · Operasional ${fmt(tot.ops)} · <b>Laba bersih ${fmt(tot.net)}</b>${f.incidents && f.incidents.count ? ` · Kerugian kesalahan kirim ${fmt(f.incidents.total)} (${f.incidents.count}x, sudah termasuk di operasional)` : ""}</p></div>
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr));margin-top:14px">
         <div class="card"><h2>Penjualan per negara ${f.year}</h2>${f.by_country.length ? f.by_country.map(x => `<div style="margin:8px 0"><div class="row" style="justify-content:space-between"><span>${x.country === "-" ? "Tanpa negara" : cBadge(x.country)}</span><b>${fmt(x.revenue)}</b></div><div style="height:8px;border-radius:6px;background:var(--primary-soft);margin-top:4px"><div style="height:8px;border-radius:6px;background:var(--primary);width:${Math.max(3, x.revenue / cmax * 100)}%"></div></div></div>`).join("") : '<p class="muted">Belum ada data.</p>'}</div>
         <div class="card"><h2>Produk terlaris ${f.year}</h2>${f.top.length ? `<table><tr><th>Produk</th><th class="num">Terjual</th><th class="num">Omset</th></tr>${f.top.map(x => `<tr><td><b>${esc(x.code || "")}</b> ${esc(x.name)}</td><td class="num">${x.qty}</td><td class="num">${fmt(x.revenue)}</td></tr>`).join("")}</table>` : '<p class="muted">Belum ada data.</p>'}</div></div>

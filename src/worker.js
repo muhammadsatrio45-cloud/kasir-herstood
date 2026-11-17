@@ -51,6 +51,8 @@ function ensureInit(env) {
     if (!oiCols.includes("inv_id")) await run(env, "ALTER TABLE order_items ADD COLUMN inv_id INTEGER");
     const oCols = (await all(env, "PRAGMA table_info(orders)")).map(r => r.name);
     for (const [col, def] of [["done_at", "TEXT"], ["tracking", "TEXT NOT NULL DEFAULT ''"], ["refund", "INTEGER NOT NULL DEFAULT 0"]]) if (!oCols.includes(col)) await run(env, `ALTER TABLE orders ADD COLUMN ${col} ${def}`);
+    const eCols = (await all(env, "PRAGMA table_info(expenses)")).map(r => r.name);
+    if (!eCols.includes("incident_id")) await run(env, "ALTER TABLE expenses ADD COLUMN incident_id INTEGER");
     await run(env, "INSERT OR IGNORE INTO settings(key,value) SELECT 'gate_id', CAST(COALESCE(MAX(id),0) AS TEXT) FROM orders"); // order lama (sebelum aturan laba-saat-selesai) tetap diakui saat lunas
     await env.DB.batch(Object.entries(DEFAULT_SETTINGS).map(([k, v]) => st(env, "INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)", k, JSON.stringify(v))));
     if (!(await one(env, "SELECT id FROM customers LIMIT 1"))) await run(env, "INSERT INTO customers(name,phone) VALUES('Umum','')");
@@ -330,6 +332,7 @@ async function hOrdersList(c) {
 async function hOrderGet(c, id) {
   const o = await loadOrder(c.env, id);
   const s = await getSettings(c.env);
+  o.incidents = (await all(c.env, "SELECT * FROM incidents WHERE order_id=? ORDER BY id DESC", id)).map(r => incView(r, c.user.role === "admin"));
   o.settings = Object.fromEntries(Object.entries(s).filter(([k]) => k.startsWith("store_") || k.startsWith("invoice_") || k === "currency" || k === "pay_info"));
   return o;
 }
@@ -488,10 +491,12 @@ async function financeData(env, year) {
   const Y = `substr(${RM},1,4)=? AND o.status!='batal' AND ${REC}`;
   const by_country = await all(env, `SELECT CASE WHEN oi.country='' THEN '-' ELSE oi.country END country, SUM(oi.qty) qty, SUM(oi.price*oi.qty) revenue FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE ${Y} GROUP BY 1 ORDER BY revenue DESC`, String(year));
   const top = await all(env, `SELECT oi.code, oi.name, SUM(oi.qty) qty, SUM(oi.price*oi.qty) revenue FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE ${Y} GROUP BY oi.code, lower(oi.name) ORDER BY qty DESC LIMIT 8`, String(year));
+  const inc = await one(env, "SELECT COUNT(DISTINCT incident_id) n, COALESCE(SUM(amount),0) total FROM expenses WHERE incident_id IS NOT NULL AND substr(date,1,4)=?", String(year));
   const years = [...new Set([String(year), ...allMonths.map(m => m.slice(0, 4))])].sort();
   return {
     year, years, people, capital_pct: capPct, months, by_country, top, capital: capRows, payments: payRows, payroll,
     pot: { setoran, tambah_modal: tambahModal, stok, hpp_open: hppOpen, dp_tertahan: open.dp, piutang: open.piutang, open_orders: open.n, held_orders: open.held_n, held_total: open.held, cum_net: cumNet, kas_laba: kasLaba, gaji_dibayar: gajiDibayar, modal_tersedia: modalTersedia, total_kas: modalTersedia + Math.max(0, kasLaba) },
+    incidents: { count: inc.n, total: inc.total },
     warn: { no_cost: noCost },
   };
 }
@@ -641,9 +646,10 @@ async function hNotif(c) {
   const low = await all(c.env, "SELECT code,name,qty FROM inventory WHERE active=1 AND qty<=3 ORDER BY qty, name LIMIT 20");
   // barang sudah sampai di Indonesia (status Siap Dikirim) tapi belum lunas -> waktunya ditagih
   const bill = await all(c.env, "SELECT id,number,customer_name customer,total-paid_amount sisa FROM orders WHERE status='siap' AND paid=0 ORDER BY id LIMIT 30");
+  const resend = (await all(c.env, "SELECT i.id,i.order_id,i.kind,i.resend,o.number,o.customer_name customer FROM incidents i JOIN orders o ON o.id=i.order_id WHERE i.status='open' AND o.status!='batal' ORDER BY i.id LIMIT 30")).map(r => ({ id: r.id, order_id: r.order_id, number: r.number, customer: r.customer, kind: INC_KINDS[r.kind] || r.kind, items: JSON.parse(r.resend || "[]") }));
   let backup_days = null;
   if (c.user.role === "admin") { const lb = await one(c.env, "SELECT value FROM settings WHERE key='last_backup'"); const last = lb ? JSON.parse(lb.value) : null; backup_days = last ? Math.floor((Date.now() - Date.parse(last.replace(" ", "T") + "Z") + WIB) / 864e5) : -1; }
-  return { recent: recent.map(o => ({ id: o.id, number: o.number, customer: o.customer_name, type: o.type, status: o.status, cashier: o.cashier, at: o.created_at })), max_id: recent.length ? recent[0].id : 0, dups, low, bill, backup_days };
+  return { recent: recent.map(o => ({ id: o.id, number: o.number, customer: o.customer_name, type: o.type, status: o.status, cashier: o.cashier, at: o.created_at })), max_id: recent.length ? recent[0].id : 0, dups, low, bill, resend, backup_days };
 }
 async function hDupOk(c) {
   const key = String(c.body.key || "");
@@ -651,6 +657,41 @@ async function hDupOk(c) {
   await run(c.env, "INSERT OR IGNORE INTO dup_ok(key,created_at) VALUES(?,?)", key, nowIso());
   return { ok: true };
 }
+
+/* ---------- kesalahan kirim / barang kurang / rusak / hilang ---------- */
+const INC_KINDS = { salah_kirim: "Salah kirim", kurang: "Barang kurang", rusak: "Barang rusak", hilang: "Barang hilang" };
+const incView = (r, admin) => { const o = { ...r, resend: JSON.parse(r.resend || "[]"), wrong: JSON.parse(r.wrong || "[]"), kind_label: INC_KINDS[r.kind] || r.kind }; if (!admin) { delete o.loss; o.wrong = o.wrong.map(({ cost, ...x }) => x); } return o; };
+async function hIncidentCreate(c, id) {
+  const o = await loadOrder(c.env, id), b = c.body;
+  if (o.status === "batal") throw new ApiError("Order sudah dibatalkan");
+  const kind = String(b.kind || ""); if (!INC_KINDS[kind]) throw new ApiError("Pilih jenis kesalahan");
+  const clean = a => (Array.isArray(a) ? a : []).map(x => ({ name: String(x.name || "").trim().slice(0, 120), code: String(x.code || "").trim().toUpperCase().slice(0, 40), qty: Math.max(1, toInt(x.qty) || 1), source: x.source === "order" ? "order" : "master" })).filter(x => x.name);
+  const resend = clean(b.resend), wrong = clean(b.wrong), ship = Math.max(0, toInt(b.ship));
+  if (!resend.length && !wrong.length && !ship) throw new ApiError("Isi barang yang dikirim ulang, barang rugi, atau ongkir");
+  let loss = 0, noCost = 0; const stmts = [], names = [];
+  for (const x of wrong) {
+    let cost = 0;
+    if (x.source === "order") cost = (o.items.find(i => i.name.toLowerCase() === x.name.toLowerCase() && (i.code || "") === x.code) || o.items.find(i => i.name.toLowerCase() === x.name.toLowerCase()) || {}).cost || 0;
+    if (!cost) cost = (await one(c.env, "SELECT cost FROM products WHERE lower(name)=lower(?) AND code=? AND cost>0 LIMIT 1", x.name, x.code))?.cost || (await one(c.env, "SELECT cost FROM inventory WHERE lower(name)=lower(?) AND code=? AND cost>0 AND active=1 LIMIT 1", x.name, x.code))?.cost || 0;
+    if (!cost) noCost++;
+    x.cost = cost; loss += cost * x.qty; names.push(`${x.name} ×${x.qty}`);
+  }
+  if (c.user.role === "admin" && toInt(b.loss_manual) > 0) loss = toInt(b.loss_manual);
+  const note = String(b.note || "").trim().slice(0, 200), t = nowIso(), d = todayWib();
+  const ins = await run(c.env, "INSERT INTO incidents(order_id,kind,resend,wrong,ship,loss,note,status,created_at,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)", id, kind, JSON.stringify(resend), JSON.stringify(wrong), ship, loss, note, resend.length ? "open" : "done", t, c.user.name);
+  const iid = ins.meta.last_row_id;
+  if (!resend.length) stmts.push(st(c.env, "UPDATE incidents SET done_at=? WHERE id=?", t, iid));
+  if (ship > 0) stmts.push(st(c.env, "INSERT INTO expenses(date,category,description,amount,cashier,incident_id) VALUES(?,?,?,?,?,?)", d, "Kerugian & kirim ulang", `Ongkir kirim ulang ${o.number}`, ship, c.user.name, iid));
+  if (loss > 0) stmts.push(st(c.env, "INSERT INTO expenses(date,category,description,amount,cashier,incident_id) VALUES(?,?,?,?,?,?)", d, "Kerugian & kirim ulang", `${INC_KINDS[kind]} ${o.number}: ${names.join(", ")}`.slice(0, 200), loss, c.user.name, iid));
+  const adjusted = [];
+  if (b.deduct_stock) for (const x of wrong) {
+    const inv = await one(c.env, "SELECT id,qty FROM inventory WHERE active=1 AND lower(name)=lower(?) AND code=? LIMIT 1", x.name, x.code);
+    if (inv && inv.qty >= x.qty) { stmts.push(st(c.env, "UPDATE inventory SET qty=qty-? WHERE id=?", x.qty, inv.id), st(c.env, "INSERT INTO inv_moves(inv_id,delta,reason,ref,created_at) VALUES(?,?,?,?,?)", inv.id, -x.qty, `${INC_KINDS[kind].toLowerCase()} ${o.number}`, c.user.name, t)); adjusted.push(x.name); }
+  }
+  if (stmts.length) await c.env.DB.batch(stmts);
+  return { id: iid, loss: c.user.role === "admin" ? loss : undefined, no_cost: noCost, stock_adjusted: adjusted };
+}
+async function hIncidentDone(c, id) { await run(c.env, "UPDATE incidents SET status='done', done_at=? WHERE id=?", nowIso(), id); return { ok: true }; }
 
 /* ---------- refund, modal massal, log aktivitas ---------- */
 async function hRefund(c, id) {
@@ -676,6 +717,7 @@ const ACT = [
   ["PUT", /^\/api\/orders\/(\d+)$/, (b, r) => Array.isArray(b.items) ? `Edit invoice ${r}` : b.pay_amount != null || b.paid ? `Catat pembayaran ${r}${b.pay_amount ? " Rp " + toInt(b.pay_amount) : ""}` : b.status ? `Ubah status ${r} → ${b.status}` : `Ubah data ${r}`],
   ["DELETE", /^\/api\/orders\/(\d+)$/, (b, r) => `Hapus invoice ${r}`],
   ["POST", /^\/api\/orders\/(\d+)\/refund$/, (b, r) => `Refund ${r} Rp ${toInt(b.amount)}`],
+  ["POST", /^\/api\/orders\/(\d+)\/incident$/, (b, r) => `Catat ${INC_KINDS[b.kind] || "kesalahan"} ${r}`], ["POST", /^\/api\/incidents\/(\d+)\/done$/, () => "Tandai kirim ulang selesai"],
   ["POST", /^\/api\/products$/, b => `Tambah master produk ${b.name || ""}`], ["PUT", /^\/api\/products\/(\d+)$/, b => `Ubah master produk ${b.name || ""}`], ["DELETE", /^\/api\/products\/(\d+)$/, () => "Hapus master produk"],
   ["POST", /^\/api\/inventory$/, b => `Tambah inventory ${b.name || ""}`], ["PUT", /^\/api\/inventory\/(\d+)$/, b => `Ubah inventory ${b.name || ""}`], ["DELETE", /^\/api\/inventory\/(\d+)$/, () => "Hapus inventory"],
   ["POST", /^\/api\/inventory\/(\d+)\/stock$/, b => `Ubah stok inventory (${toInt(b.delta) > 0 ? "+" : ""}${toInt(b.delta)})`], ["POST", /^\/api\/inventory\/(\d+)\/link-old$/, () => "Tarik order lama ke inventory"],
@@ -700,7 +742,7 @@ const ROUTES = [
   ["POST", /^\/api\/payroll$/, hPayrollCreate, "admin"], ["DELETE", /^\/api\/payroll\/(\d+)$/, hPayrollDelete, "admin"], ["GET", /^\/api\/order-rows$/, hOrderRows, "user"],
   ["GET", /^\/api\/inventory$/, hInvList, "user"], ["POST", /^\/api\/inventory$/, hInvCreate, "admin"], ["PUT", /^\/api\/inventory\/(\d+)$/, hInvUpdate, "admin"],
   ["POST", /^\/api\/inventory\/(\d+)\/stock$/, hInvStock, "admin"], ["DELETE", /^\/api\/inventory\/(\d+)$/, hInvDelete, "admin"], ["GET", /^\/api\/inventory\/(\d+)\/moves$/, hInvMoves, "admin"],
-  ["POST", /^\/api\/login$/, hLogin, null], ["GET", /^\/api\/public-settings$/, hPublicSettings, null], ["GET", /^\/api\/track$/, hTrack, null], ["GET", /^\/api\/notifications$/, hNotif, "user"], ["POST", /^\/api\/orders\/(\d+)\/refund$/, hRefund, "admin"], ["POST", /^\/api\/finance\/apply-master-cost$/, hApplyMasterCost, "admin"], ["GET", /^\/api\/activity$/, hActivity, "admin"], ["POST", /^\/api\/notifications\/dup-ok$/, hDupOk, "user"],
+  ["POST", /^\/api\/login$/, hLogin, null], ["GET", /^\/api\/public-settings$/, hPublicSettings, null], ["GET", /^\/api\/track$/, hTrack, null], ["GET", /^\/api\/notifications$/, hNotif, "user"], ["POST", /^\/api\/orders\/(\d+)\/refund$/, hRefund, "admin"], ["POST", /^\/api\/orders\/(\d+)\/incident$/, hIncidentCreate, "user"], ["POST", /^\/api\/incidents\/(\d+)\/done$/, hIncidentDone, "user"], ["POST", /^\/api\/finance\/apply-master-cost$/, hApplyMasterCost, "admin"], ["GET", /^\/api\/activity$/, hActivity, "admin"], ["POST", /^\/api\/notifications\/dup-ok$/, hDupOk, "user"],
   ["POST", /^\/api\/logout$/, hLogout, "user"], ["GET", /^\/api\/bootstrap$/, hBootstrap, "user"],
   ["GET", /^\/api\/products$/, hProductsList, "user"], ["POST", /^\/api\/products$/, hProductCreate, "admin"],
   ["PUT", /^\/api\/products\/(\d+)$/, hProductUpdate, "admin"], ["DELETE", /^\/api\/products\/(\d+)$/, hProductDelete, "admin"],
