@@ -49,6 +49,9 @@ function ensureInit(env) {
     }
     const oiCols = (await all(env, "PRAGMA table_info(order_items)")).map(r => r.name);
     if (!oiCols.includes("inv_id")) await run(env, "ALTER TABLE order_items ADD COLUMN inv_id INTEGER");
+    const oCols = (await all(env, "PRAGMA table_info(orders)")).map(r => r.name);
+    for (const [col, def] of [["done_at", "TEXT"], ["tracking", "TEXT NOT NULL DEFAULT ''"], ["refund", "INTEGER NOT NULL DEFAULT 0"]]) if (!oCols.includes(col)) await run(env, `ALTER TABLE orders ADD COLUMN ${col} ${def}`);
+    await run(env, "INSERT OR IGNORE INTO settings(key,value) SELECT 'gate_id', CAST(COALESCE(MAX(id),0) AS TEXT) FROM orders"); // order lama (sebelum aturan laba-saat-selesai) tetap diakui saat lunas
     await env.DB.batch(Object.entries(DEFAULT_SETTINGS).map(([k, v]) => st(env, "INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)", k, JSON.stringify(v))));
     if (!(await one(env, "SELECT id FROM customers LIMIT 1"))) await run(env, "INSERT INTO customers(name,phone) VALUES('Umum','')");
     if (!(await one(env, "SELECT id FROM users LIMIT 1")) && env.ADMIN_PASSWORD) {
@@ -327,7 +330,7 @@ async function hOrdersList(c) {
 async function hOrderGet(c, id) {
   const o = await loadOrder(c.env, id);
   const s = await getSettings(c.env);
-  o.settings = Object.fromEntries(Object.entries(s).filter(([k]) => k.startsWith("store_") || k.startsWith("invoice_") || k === "currency"));
+  o.settings = Object.fromEntries(Object.entries(s).filter(([k]) => k.startsWith("store_") || k.startsWith("invoice_") || k === "currency" || k === "pay_info"));
   return o;
 }
 function paymentPlan(total, paidAmount, amount, method, cash) {
@@ -427,7 +430,8 @@ async function hOrderUpdate(c, id) {
     stmts.push(st(env, "UPDATE payments SET created_at=? WHERE order_id=? AND date(created_at)=?", ns, id, od));
   }
   const note = "note" in b ? String(b.note).trim() : o.note;
-  stmts.push(st(env, "UPDATE orders SET status=?,note=? WHERE id=?", status, note, id));
+  const tracking = "tracking" in b ? String(b.tracking || "").trim().slice(0, 120) : o.tracking;
+  stmts.push(st(env, "UPDATE orders SET status=?,note=?,tracking=?,done_at=CASE WHEN ?='selesai' THEN COALESCE(done_at,?) ELSE NULL END WHERE id=?", status, note, tracking, status, nowIso(), id));
   await env.DB.batch(stmts);
   return loadOrder(env, id);
 }
@@ -452,7 +456,12 @@ async function financeData(env, year) {
   const people = (Array.isArray(s.pay_people) ? s.pay_people : []).map(p => ({ name: String(p.name), pct: Number(p.pct) || 0 }));
   const capPct = Number(s.capital_pct) || 0;
   const mapBy = rows => Object.fromEntries(rows.map(r => [r.m, r]));
-  const sales = mapBy(await all(env, `SELECT substr(COALESCE(o.paid_at,o.created_at),1,7) m, COUNT(*) n, COALESCE(SUM(o.total),0) rev, COALESCE(SUM(c.hpp),0) hpp FROM orders o LEFT JOIN (SELECT order_id, SUM(cost*qty) hpp FROM order_items GROUP BY order_id) c ON c.order_id=o.id WHERE o.status!='batal' AND o.paid=1 GROUP BY m`));
+  const gate = await one(env, "SELECT value FROM settings WHERE key='gate_id'");
+  const G = gate ? +JSON.parse(gate.value) || 0 : 0;
+  // laba diakui kalau order LUNAS dan sudah SELESAI (diterima customer); order lama (id <= G) cukup lunas
+  const REC = `(o.paid=1 AND (o.id<=${G} OR o.status='selesai'))`;
+  const RM = `CASE WHEN o.id<=${G} THEN COALESCE(o.paid_at,o.created_at) ELSE MAX(COALESCE(o.paid_at,o.created_at),COALESCE(o.done_at,'')) END`;
+  const sales = mapBy(await all(env, `SELECT substr(${RM},1,7) m, COUNT(*) n, COALESCE(SUM(o.total-o.refund),0) rev, COALESCE(SUM(c.hpp),0) hpp FROM orders o LEFT JOIN (SELECT order_id, SUM(cost*qty) hpp FROM order_items GROUP BY order_id) c ON c.order_id=o.id WHERE o.status!='batal' AND ${REC} GROUP BY m`));
   const cash = mapBy(await all(env, `SELECT substr(p.created_at,1,7) m, COALESCE(SUM(p.amount),0) amt FROM payments p JOIN orders o ON o.id=p.order_id WHERE o.status!='batal' GROUP BY m`));
   const ops = mapBy(await all(env, "SELECT substr(date,1,7) m, COALESCE(SUM(amount),0) amt FROM expenses GROUP BY m"));
   const allMonths = [...new Set([...Object.keys(sales), ...Object.keys(ops)])];
@@ -471,18 +480,18 @@ async function financeData(env, year) {
   const payroll = people.map(p => { const hak = Math.round(pool * p.pct / 100), paid = payRows.filter(r => r.person === p.name).reduce((a, r) => a + r.amount, 0); return { ...p, hak, paid, sisa: hak - paid }; });
   const gajiDibayar = payRows.reduce((a, r) => a + r.amount, 0);
   const stok = (await one(env, "SELECT COALESCE(SUM(qty*cost),0) v FROM inventory WHERE active=1")).v;
-  const open = await one(env, "SELECT COALESCE(SUM(paid_amount),0) dp, COALESCE(SUM(total-paid_amount),0) piutang, COUNT(*) n FROM orders WHERE status!='batal' AND paid=0");
-  const hppOpen = (await one(env, "SELECT COALESCE(SUM(oi.cost*oi.qty),0) v FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE o.status!='batal' AND o.paid=0")).v;
+  const open = await one(env, `SELECT COALESCE(SUM(o.paid_amount),0) dp, COALESCE(SUM(o.total-o.paid_amount),0) piutang, COUNT(*) n, COALESCE(SUM(CASE WHEN o.paid=1 THEN 1 ELSE 0 END),0) held_n, COALESCE(SUM(CASE WHEN o.paid=1 THEN o.total-o.refund ELSE 0 END),0) held FROM orders o WHERE o.status!='batal' AND NOT ${REC}`);
+  const hppOpen = (await one(env, `SELECT COALESCE(SUM(oi.cost*oi.qty),0) v FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE o.status!='batal' AND NOT ${REC}`)).v;
   const noCost = (await one(env, "SELECT COUNT(*) n FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE o.status!='batal' AND oi.cost=0")).n;
   const kasLaba = cumNet - tambahModal - gajiDibayar;
   const modalTersedia = setoran + tambahModal - stok - hppOpen + open.dp + Math.min(0, kasLaba);
-  const Y = `substr(COALESCE(o.paid_at,o.created_at),1,4)=? AND o.status!='batal' AND o.paid=1`;
+  const Y = `substr(${RM},1,4)=? AND o.status!='batal' AND ${REC}`;
   const by_country = await all(env, `SELECT CASE WHEN oi.country='' THEN '-' ELSE oi.country END country, SUM(oi.qty) qty, SUM(oi.price*oi.qty) revenue FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE ${Y} GROUP BY 1 ORDER BY revenue DESC`, String(year));
   const top = await all(env, `SELECT oi.code, oi.name, SUM(oi.qty) qty, SUM(oi.price*oi.qty) revenue FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE ${Y} GROUP BY oi.code, lower(oi.name) ORDER BY qty DESC LIMIT 8`, String(year));
   const years = [...new Set([String(year), ...allMonths.map(m => m.slice(0, 4))])].sort();
   return {
     year, years, people, capital_pct: capPct, months, by_country, top, capital: capRows, payments: payRows, payroll,
-    pot: { setoran, tambah_modal: tambahModal, stok, hpp_open: hppOpen, dp_tertahan: open.dp, piutang: open.piutang, open_orders: open.n, cum_net: cumNet, kas_laba: kasLaba, gaji_dibayar: gajiDibayar, modal_tersedia: modalTersedia, total_kas: modalTersedia + Math.max(0, kasLaba) },
+    pot: { setoran, tambah_modal: tambahModal, stok, hpp_open: hppOpen, dp_tertahan: open.dp, piutang: open.piutang, open_orders: open.n, held_orders: open.held_n, held_total: open.held, cum_net: cumNet, kas_laba: kasLaba, gaji_dibayar: gajiDibayar, modal_tersedia: modalTersedia, total_kas: modalTersedia + Math.max(0, kasLaba) },
     warn: { no_cost: noCost },
   };
 }
@@ -585,7 +594,8 @@ async function hChangePassword(c) {
 }
 async function hBackup(c) {
   const data = { app: "herstoodio-kasir", exported_at: nowIso() };
-  for (const t of ["settings", "products", "customers", "orders", "order_items", "payments", "expenses", "inventory", "inv_moves", "capital", "payroll"]) data[t] = await all(c.env, `SELECT * FROM ${t}`);
+  await run(c.env, "INSERT OR REPLACE INTO settings(key,value) VALUES('last_backup',?)", JSON.stringify(nowIso()));
+  for (const t of ["settings", "products", "customers", "orders", "order_items", "payments", "expenses", "inventory", "inv_moves", "capital", "payroll", "activity"]) data[t] = await all(c.env, `SELECT * FROM ${t}`);
   data.users = await all(c.env, "SELECT id,username,name,role,active FROM users");
   return new Response(JSON.stringify(data), { headers: { "Content-Type": "application/json", "Content-Disposition": `attachment; filename="backup-kasir-${todayWib()}.json"`, "Cache-Control": "no-store" } });
 }
@@ -602,9 +612,85 @@ async function hTrack(c) {
   const where = [], args = [];
   if (month) { where.push("substr(o.created_at,1,7)=?"); args.push(month); }
   if (q) { where.push("(o.number LIKE ? ESCAPE '\\' OR o.customer_name LIKE ? ESCAPE '\\')"); args.push(like, like); }
-  const orders = await all(c.env, `SELECT o.id,o.number,o.created_at,o.customer_name,o.status FROM orders o WHERE ${where.join(" AND ")} ORDER BY o.id DESC LIMIT 80`, ...args);
+  const orders = await all(c.env, `SELECT o.id,o.number,o.created_at,o.customer_name,o.status,o.tracking FROM orders o WHERE ${where.join(" AND ")} ORDER BY o.id DESC LIMIT 80`, ...args);
   const items = orders.length ? await all(c.env, `SELECT order_id,country,code,name,qty FROM order_items WHERE order_id IN (${orders.map(() => "?").join(",")}) ORDER BY id`, ...orders.map(o => o.id)) : [];
-  return { brand: s.store_name, rows: orders.map(o => ({ number: o.number, date: o.created_at.slice(0, 10), customer: o.customer_name, status: o.status, items: items.filter(i => i.order_id === o.id).map(i => ({ country: i.country, code: i.code, name: i.name, qty: i.qty })) })) };
+  return { brand: s.store_name, rows: orders.map(o => ({ number: o.number, date: o.created_at.slice(0, 10), customer: o.customer_name, status: o.status, tracking: o.tracking || "", items: items.filter(i => i.order_id === o.id).map(i => ({ country: i.country, code: i.code, name: i.name, qty: i.qty })) })) };
+}
+
+/* ---------- notifikasi (lonceng): order baru, order mirip/duplikat, stok menipis ---------- */
+async function hNotif(c) {
+  const recent = await all(c.env, "SELECT id,number,customer_name,type,status,total,cashier,created_at FROM orders WHERE created_at>=? ORDER BY id DESC LIMIT 20", new Date(Date.now() + WIB - 3 * 864e5).toISOString().slice(0, 10));
+  const cutoff = new Date(Date.now() + WIB - 60 * 864e5).toISOString().slice(0, 10);
+  const os = await all(c.env, "SELECT id,number,customer_name,total,paid,paid_amount,cashier,created_at,status FROM orders WHERE status!='batal' AND lower(customer_name)<>'umum' AND created_at>=? ORDER BY id", cutoff);
+  const its = os.length ? await all(c.env, "SELECT order_id,code,name,qty FROM order_items WHERE order_id IN (SELECT id FROM orders WHERE status!='batal' AND lower(customer_name)<>'umum' AND created_at>=?) ORDER BY id", cutoff) : [];
+  const byOrder = new Map(); for (const i of its) (byOrder.get(i.order_id) || byOrder.set(i.order_id, []).get(i.order_id)).push(i);
+  const groups = new Map();
+  for (const o of os) {
+    const li = byOrder.get(o.id); if (!li) continue;
+    const sig = o.customer_name.trim().toLowerCase() + "#" + li.map(i => `${String(i.code || "").toUpperCase()}|${i.name.trim().toLowerCase()}|${i.qty}`).sort().join(";");
+    (groups.get(sig) || groups.set(sig, []).get(sig)).push({ ...o, items: li });
+  }
+  const ok = new Set((await all(c.env, "SELECT key FROM dup_ok")).map(r => r.key));
+  const dups = [];
+  for (const g of groups.values()) {
+    if (g.length < 2) continue;
+    const key = g.map(o => o.id).join(",");
+    if (ok.has(key)) continue;
+    dups.push({ key, customer: g[0].customer_name, items: g[0].items.map(i => ({ code: i.code, name: i.name, qty: i.qty })), orders: g.map(o => ({ id: o.id, number: o.number, date: o.created_at.slice(0, 16), total: o.total, paid: o.paid, paid_amount: o.paid_amount, cashier: o.cashier })) });
+  }
+  const low = await all(c.env, "SELECT code,name,qty FROM inventory WHERE active=1 AND qty<=3 ORDER BY qty, name LIMIT 20");
+  // barang sudah sampai di Indonesia (status Siap Dikirim) tapi belum lunas -> waktunya ditagih
+  const bill = await all(c.env, "SELECT id,number,customer_name customer,total-paid_amount sisa FROM orders WHERE status='siap' AND paid=0 ORDER BY id LIMIT 30");
+  let backup_days = null;
+  if (c.user.role === "admin") { const lb = await one(c.env, "SELECT value FROM settings WHERE key='last_backup'"); const last = lb ? JSON.parse(lb.value) : null; backup_days = last ? Math.floor((Date.now() - Date.parse(last.replace(" ", "T") + "Z") + WIB) / 864e5) : -1; }
+  return { recent: recent.map(o => ({ id: o.id, number: o.number, customer: o.customer_name, type: o.type, status: o.status, cashier: o.cashier, at: o.created_at })), max_id: recent.length ? recent[0].id : 0, dups, low, bill, backup_days };
+}
+async function hDupOk(c) {
+  const key = String(c.body.key || "");
+  if (!/^\d+(,\d+)+$/.test(key)) throw new ApiError("Data tidak valid");
+  await run(c.env, "INSERT OR IGNORE INTO dup_ok(key,created_at) VALUES(?,?)", key, nowIso());
+  return { ok: true };
+}
+
+/* ---------- refund, modal massal, log aktivitas ---------- */
+async function hRefund(c, id) {
+  const o = await loadOrder(c.env, id), amount = toInt(c.body.amount);
+  if (o.status === "batal") throw new ApiError("Order sudah dibatalkan, tidak perlu refund");
+  if (amount <= 0) throw new ApiError("Nominal refund harus lebih dari 0");
+  if (amount > o.paid_amount - (o.refund || 0)) throw new ApiError("Refund melebihi uang yang sudah diterima dari order ini");
+  const note = String(c.body.note || "").trim().slice(0, 120);
+  await c.env.DB.batch([
+    st(c.env, "INSERT INTO payments(order_id,amount,method,kind,cash_received,cashier,created_at) VALUES(?,?,?,?,0,?,?)", id, -amount, note ? "Refund: " + note : "Refund", "refund", c.user.name, nowIso()),
+    st(c.env, "UPDATE orders SET refund=refund+? WHERE id=?", amount, id),
+  ]);
+  return loadOrder(c.env, id);
+}
+async function hApplyMasterCost(c) {
+  const r = await c.env.DB.prepare("UPDATE order_items SET cost=(SELECT p.cost FROM products p WHERE lower(p.name)=lower(order_items.name) AND p.code=order_items.code AND p.cost>0 ORDER BY p.id LIMIT 1) WHERE cost=0 AND EXISTS (SELECT 1 FROM products p WHERE lower(p.name)=lower(order_items.name) AND p.code=order_items.code AND p.cost>0)").run();
+  const left = (await one(c.env, "SELECT COUNT(*) n FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE o.status!='batal' AND oi.cost=0")).n;
+  return { updated: r.meta?.changes || 0, left };
+}
+const hActivity = c => all(c.env, "SELECT * FROM activity ORDER BY id DESC LIMIT 300");
+const ACT = [
+  ["POST", /^\/api\/orders$/, () => "Membuat order baru"],
+  ["PUT", /^\/api\/orders\/(\d+)$/, (b, r) => Array.isArray(b.items) ? `Edit invoice ${r}` : b.pay_amount != null || b.paid ? `Catat pembayaran ${r}${b.pay_amount ? " Rp " + toInt(b.pay_amount) : ""}` : b.status ? `Ubah status ${r} → ${b.status}` : `Ubah data ${r}`],
+  ["DELETE", /^\/api\/orders\/(\d+)$/, (b, r) => `Hapus invoice ${r}`],
+  ["POST", /^\/api\/orders\/(\d+)\/refund$/, (b, r) => `Refund ${r} Rp ${toInt(b.amount)}`],
+  ["POST", /^\/api\/products$/, b => `Tambah master produk ${b.name || ""}`], ["PUT", /^\/api\/products\/(\d+)$/, b => `Ubah master produk ${b.name || ""}`], ["DELETE", /^\/api\/products\/(\d+)$/, () => "Hapus master produk"],
+  ["POST", /^\/api\/inventory$/, b => `Tambah inventory ${b.name || ""}`], ["PUT", /^\/api\/inventory\/(\d+)$/, b => `Ubah inventory ${b.name || ""}`], ["DELETE", /^\/api\/inventory\/(\d+)$/, () => "Hapus inventory"],
+  ["POST", /^\/api\/inventory\/(\d+)\/stock$/, b => `Ubah stok inventory (${toInt(b.delta) > 0 ? "+" : ""}${toInt(b.delta)})`], ["POST", /^\/api\/inventory\/(\d+)\/link-old$/, () => "Tarik order lama ke inventory"],
+  ["POST", /^\/api\/expenses$/, b => `Catat pengeluaran Rp ${toInt(b.amount)}`], ["DELETE", /^\/api\/expenses\/(\d+)$/, () => "Hapus pengeluaran"],
+  ["POST", /^\/api\/capital$/, b => `Catat modal Rp ${toInt(b.amount)} (${b.party || "-"})`], ["DELETE", /^\/api\/capital\/(\d+)$/, () => "Hapus setoran modal"],
+  ["POST", /^\/api\/payroll$/, b => `Bayar gaji ${b.person || ""} Rp ${toInt(b.amount)}`], ["DELETE", /^\/api\/payroll\/(\d+)$/, () => "Hapus pembayaran gaji"],
+  ["PUT", /^\/api\/settings$/, () => "Ubah pengaturan"], ["POST", /^\/api\/users$/, b => `Tambah akun ${b.name || ""}`], ["PUT", /^\/api\/users\/(\d+)$/, b => "Ubah akun" + (b.name ? " → " + b.name : "")],
+  ["POST", /^\/api\/finance\/apply-master-cost$/, () => "Terapkan modal Master ke order lama"],
+];
+async function logAct(env, user, method, path, body, preNo = "") {
+  const a = ACT.find(([m, rx]) => m === method && rx.test(path)); if (!a) return;
+  const mt = a[1].exec(path); let ref = mt && mt[1] ? "#" + mt[1] : "";
+  if (preNo) ref = preNo;
+  await run(env, "INSERT INTO activity(at,user,action,detail) VALUES(?,?,?,?)", nowIso(), user.name, a[2](body || {}, ref), "");
+  await run(env, "DELETE FROM activity WHERE id < (SELECT MAX(id) FROM activity) - 3000");
 }
 
 /* ---------- routing ---------- */
@@ -614,7 +700,7 @@ const ROUTES = [
   ["POST", /^\/api\/payroll$/, hPayrollCreate, "admin"], ["DELETE", /^\/api\/payroll\/(\d+)$/, hPayrollDelete, "admin"], ["GET", /^\/api\/order-rows$/, hOrderRows, "user"],
   ["GET", /^\/api\/inventory$/, hInvList, "user"], ["POST", /^\/api\/inventory$/, hInvCreate, "admin"], ["PUT", /^\/api\/inventory\/(\d+)$/, hInvUpdate, "admin"],
   ["POST", /^\/api\/inventory\/(\d+)\/stock$/, hInvStock, "admin"], ["DELETE", /^\/api\/inventory\/(\d+)$/, hInvDelete, "admin"], ["GET", /^\/api\/inventory\/(\d+)\/moves$/, hInvMoves, "admin"],
-  ["POST", /^\/api\/login$/, hLogin, null], ["GET", /^\/api\/public-settings$/, hPublicSettings, null], ["GET", /^\/api\/track$/, hTrack, null],
+  ["POST", /^\/api\/login$/, hLogin, null], ["GET", /^\/api\/public-settings$/, hPublicSettings, null], ["GET", /^\/api\/track$/, hTrack, null], ["GET", /^\/api\/notifications$/, hNotif, "user"], ["POST", /^\/api\/orders\/(\d+)\/refund$/, hRefund, "admin"], ["POST", /^\/api\/finance\/apply-master-cost$/, hApplyMasterCost, "admin"], ["GET", /^\/api\/activity$/, hActivity, "admin"], ["POST", /^\/api\/notifications\/dup-ok$/, hDupOk, "user"],
   ["POST", /^\/api\/logout$/, hLogout, "user"], ["GET", /^\/api\/bootstrap$/, hBootstrap, "user"],
   ["GET", /^\/api\/products$/, hProductsList, "user"], ["POST", /^\/api\/products$/, hProductCreate, "admin"],
   ["PUT", /^\/api\/products\/(\d+)$/, hProductUpdate, "admin"], ["DELETE", /^\/api\/products\/(\d+)$/, hProductDelete, "admin"],
@@ -649,7 +735,10 @@ export default {
         let body = {};
         if (m === "POST" || m === "PUT") { try { body = (await req.json()) || {}; } catch { body = {}; } }
         const ctx = { env, user, token, body, query: url.searchParams, ip: req.headers.get("CF-Connecting-IP") || "" };
+        let preNo = ""; const om = user && m !== "GET" ? /^\/api\/orders\/(\d+)/.exec(url.pathname) : null;
+        if (om) { const o0 = await one(env, "SELECT number FROM orders WHERE id=?", +om[1]); if (o0) preNo = o0.number; }
         const res = await fn(ctx, ...mt.slice(1).map(Number));
+        if (user && m !== "GET") { try { await logAct(env, user, m, url.pathname, body, preNo); } catch (e) { console.error("log", e); } }
         return res instanceof Response ? res : J(res);
       }
       throw new ApiError("Endpoint tidak ditemukan", 404);

@@ -63,6 +63,20 @@ nav svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2;stro
 .user-box button{background:var(--card);color:var(--ink);border:2px solid var(--ink);border-radius:999px;padding:3px 12px;cursor:pointer;font-weight:600}
 main{flex:1;min-width:0;display:flex;flex-direction:column}
 .topbar{display:flex;align-items:center;gap:12px;padding:16px 24px;flex-wrap:wrap}
+.topbar{position:relative}
+.bellbox{position:relative}
+#bell{position:relative;padding:8px 10px;display:inline-flex}
+#bell svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.bn{position:absolute;top:-7px;right:-7px;min-width:20px;height:20px;padding:0 5px;border-radius:99px;background:var(--primary);color:#fff;border:2px solid var(--text);font-size:11px;font-weight:700;display:grid;place-items:center;line-height:1}
+.bn:empty{display:none}
+.bpanel{position:absolute;right:0;top:calc(100% + 8px);width:340px;max-width:calc(100vw - 24px);max-height:70vh;overflow:auto;background:var(--card);border:2px solid var(--text);border-radius:16px;box-shadow:4px 4px 0 var(--text);z-index:60;padding:6px}
+.bpanel[hidden]{display:none}
+.bpanel h4{margin:10px 8px 4px;font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.bi{display:block;width:100%;text-align:left;font:inherit;font-size:13.5px;background:none;border:0;border-radius:12px;padding:8px 10px;cursor:pointer;color:var(--text)}
+.bi:hover{background:var(--bg)}
+.bi.warn{background:#fff4d6}.bi.unread{background:#ffe3ee}
+.bi small{display:block;color:var(--muted);font-size:12px}
+.bempty{padding:18px 10px;text-align:center;color:var(--muted);font-size:13px}
 .topbar h1{margin:0;font-size:26px;margin-right:auto;font-weight:700;letter-spacing:.2px}
 .topbar h1:after{content:" ✦";color:var(--primary);font-size:18px}
 .content{flex:1;overflow:auto;padding:0 24px 28px}
@@ -275,6 +289,7 @@ body{background-image:radial-gradient(color-mix(in srgb,var(--primary) 32%,trans
 .cb[data-c=china] i{background:#fecaca}.cb[data-c=korea] i{background:#bfdbfe}.cb[data-c=thailand] i{background:#ddd6fe}.cb[data-c=jepang] i{background:#fbcfe8}
 .cbs{display:flex;gap:4px;flex-wrap:wrap;margin:4px 0}
 .pitem .cb{display:flex;width:max-content;margin-top:4px}
+.payinfo{margin-top:12px;padding:10px 14px;border:2px dashed var(--text,#231f1e);border-radius:14px;font-size:13px;line-height:1.5}.payinfo b{display:block;margin-bottom:2px}
 .payopts{margin-top:14px;padding:10px 4px 4px}
 .po-title{text-align:center;font-weight:700;font-size:12px;letter-spacing:.06em;color:var(--muted);margin-bottom:8px}
 .po-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
@@ -341,6 +356,7 @@ body{background-image:radial-gradient(color-mix(in srgb,var(--primary) 32%,trans
       <button class="btn sec menu-toggle" id="menuToggle">☰</button>
       <h1 id="pageTitle"></h1>
       <div id="topActions" class="row"></div>
+      <div class="bellbox"><button class="btn sec" id="bell" title="Notifikasi"></button><div class="bpanel" id="bpanel" hidden></div></div>
     </div>
     <div class="content" id="view"></div>
   </main>
@@ -359,12 +375,14 @@ const todayStr = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() +
 const isAdmin = () => S.user && S.user.role === "admin";
 const mascotOn = () => +S.settings.mascot_on !== 0;
 const ICON = {
+  bell: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
   dashboard: '<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/>',
   order: '<path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/>',
   produk: '<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>',
   pelanggan: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
   inventory: '<path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><polyline points="3.3 7.5 12 12.5 20.7 7.5"/><line x1="12" y1="22" x2="12" y2="12.5"/>',
   rekap: '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/>',
+  update: '<path d="M21 12a9 9 0 1 1-3-6.7"/><polyline points="21 3 21 9 15 9"/>',
   kalkulator: '<rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="11" x2="8" y2="11.01"/><line x1="12" y1="11" x2="12" y2="11.01"/><line x1="16" y1="11" x2="16" y2="11.01"/><line x1="8" y1="15" x2="8" y2="15.01"/><line x1="12" y1="15" x2="12" y2="15.01"/><line x1="16" y1="15" x2="16" y2="15.01"/>',
   keuangan: '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
   laporan: '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
@@ -408,6 +426,94 @@ function openModal(html, cls = "") {
 }
 function closeModal() { if (modalEl) { modalEl.remove(); modalEl = null; } }
 document.addEventListener("keydown", e => { if (e.key === "Escape" && !(S.user && S.user.must_change)) closeModal(); });
+
+/* ============ lonceng notifikasi ============ */
+const NF = { data: null };
+const seenGet = () => { try { return +localStorage.getItem("notif_seen") || 0; } catch { return 0; } };
+const seenSet = v => { try { localStorage.setItem("notif_seen", String(v)); } catch { } };
+function nfUnread() { const me = S.user ? S.user.name : ""; return NF.data ? NF.data.recent.filter(o => o.id > seenGet() && o.cashier !== me) : []; }
+function nfBackup() { return NF.data && NF.data.backup_days != null && (NF.data.backup_days < 0 || NF.data.backup_days >= 7); }
+function nfCount() { return NF.data ? nfUnread().length + NF.data.dups.length + NF.data.bill.length + (nfBackup() ? 1 : 0) : 0; }
+async function refreshNotif() {
+  if (!S.user) return;
+  try {
+    NF.data = await api("GET", "/api/notifications");
+    let seen = null; try { seen = localStorage.getItem("notif_seen"); } catch { }
+    if (seen === null) seenSet(NF.data.max_id);
+    const n = nfCount(); $("#bell").innerHTML = svg("bell") + `<span class="bn">${n > 9 ? "9+" : n || ""}</span>`;
+    if (!$("#bpanel").hidden) drawNotif();
+  } catch (e) { }
+}
+function drawNotif() {
+  if (!NF.data) return;
+  const d = NF.data, un = nfUnread(), unIds = new Set(un.map(o => o.id));
+  const others = d.recent.filter(o => !unIds.has(o.id)).slice(0, 5);
+  const row = o => `<button class="bi ${unIds.has(o.id) ? "unread" : ""}" data-oo="${o.id}"><b>${esc(o.number)}</b> · ${esc(o.customer)}<small>${o.type === "Ready Stock" ? "Ready Stock" : "Jastip"} · oleh ${esc(o.cashier || "-")} · ${esc(o.at.slice(5, 16))}</small></button>`;
+  $("#bpanel").innerHTML = (nfBackup() ? `<h4>Cadangan data</h4><button class="bi warn" data-go="pengaturan">💾 ${d.backup_days < 0 ? "Database belum pernah dicadangkan" : "Terakhir dicadangkan " + d.backup_days + " hari lalu"}<small>Buka Pengaturan → Unduh Backup Database</small></button>` : "")
+    + (d.bill.length ? `<h4>Siap ditagih pelunasan (${d.bill.length})</h4>` + d.bill.map(o => `<button class="bi warn" data-oo="${o.id}">💌 <b>${esc(o.number)}</b> · ${esc(o.customer)}<small>Barang sudah siap dikirim · sisa ${fmt(o.sisa)}</small></button>`).join("") : "")
+    + (d.dups.length ? `<h4>Perlu dicek (${d.dups.length})</h4>` + d.dups.map((g, i) => `<button class="bi warn" data-dup="${i}">⚠ <b>${esc(g.customer)}</b> — ${g.orders.length} order sama persis<small>${esc(g.items.map(x => x.name + " ×" + x.qty).join(", "))}</small></button>`).join("") : "")
+    + (un.length ? `<h4>Order baru (${un.length})</h4>` + un.map(row).join("") : "")
+    + (d.low.length ? `<h4>Stok menipis</h4>` + d.low.map(x => `<div class="bi" style="cursor:default"><b>${esc(x.code || "-")}</b> ${esc(x.name)}<small>sisa ${x.qty} pcs</small></div>`).join("") : "")
+    + (others.length ? `<h4>Order terakhir</h4>` + others.map(row).join("") : "")
+    + (!d.dups.length && !un.length && !d.low.length && !others.length && !d.bill.length && !nfBackup() ? `<div class="bempty">Belum ada notifikasi ♡</div>` : "")
+    + (un.length ? `<div style="padding:6px"><button class="btn sec sm" id="bRead" style="width:100%">Tandai semua sudah dibaca</button></div>` : "");
+  $$("[data-oo]", $("#bpanel")).forEach(b => b.onclick = () => { $("#bpanel").hidden = true; openInvoice(+b.dataset.oo); });
+  $$("[data-go]", $("#bpanel")).forEach(b => b.onclick = () => { $("#bpanel").hidden = true; go(b.dataset.go); });
+  $$("[data-dup]", $("#bpanel")).forEach(b => b.onclick = () => { $("#bpanel").hidden = true; dupForm(d.dups[+b.dataset.dup]); });
+  const r = $("#bRead"); if (r) r.onclick = () => { seenSet(d.max_id); refreshNotif(); };
+}
+function dupForm(g) {
+  const sorted = [...g.orders].sort((a, b) => a.id - b.id), older = sorted[0], newer = sorted.slice(1);
+  const m = openModal(`<h3>⚠ Order mirip: ${esc(g.customer)}</h3>
+    <p class="muted" style="margin:0 0 8px">Pelanggan dan produk sama persis:</p>
+    <ul style="margin:0 0 10px;padding-left:18px">${g.items.map(x => `<li><b>${esc(x.code || "-")}</b> ${esc(x.name)} ×${x.qty}</li>`).join("")}</ul>
+    <div class="table-wrap"><table><tr><th>Invoice</th><th>Tanggal</th><th>Kasir</th><th class="num">Total</th><th class="num">Dibayar</th></tr>
+    ${sorted.map(o => `<tr><td><button class="btn sec sm" data-oo="${o.id}">${esc(o.number)}</button></td><td>${esc(o.date.replace("T", " "))}</td><td>${esc(o.cashier || "-")}</td><td class="num">${fmt(o.total)}</td><td class="num">${fmt(o.paid_amount)}</td></tr>`).join("")}</table></div>
+    <p style="margin:12px 0 6px"><b>Apakah ini order yang berbeda, atau order duplikat?</b></p>
+    <div class="row"><button class="btn ok" id="dOk">Order berbeda (abaikan peringatan)</button><button class="btn danger" id="dDup">Duplikat → batalkan ${newer.length > 1 ? newer.length + " order terbaru" : esc(newer[0].number)}</button><button class="btn sec" id="dClose">Tutup</button></div>`);
+  $$("[data-oo]", m).forEach(b => b.onclick = () => { closeModal(); openInvoice(+b.dataset.oo); });
+  $("#dClose", m).onclick = closeModal;
+  $("#dOk", m).onclick = guard(async () => { await api("POST", "/api/notifications/dup-ok", { key: g.key }); closeModal(); toast("Oke, ditandai sebagai order yang berbeda"); refreshNotif(); });
+  $("#dDup", m).onclick = guard(async () => {
+    const names = newer.map(o => o.number).join(", ");
+    if (!confirm(`Batalkan ${names}? Order tertua (${older.number}) tetap dipakai. Stok ready stock yang terpakai akan dikembalikan.`)) return;
+    for (const o of newer) await api("PUT", "/api/orders/" + o.id, { status: "batal" });
+    closeModal(); toast("Order duplikat dibatalkan"); if (S.view === "order") loadOrders(); refreshNotif(); refreshSummary();
+  });
+}
+document.addEventListener("click", e => { const bp = $("#bpanel"); if (!bp || bp.hidden) return; if (!e.target.closest(".bellbox")) bp.hidden = true; });
+
+/* ============ menu Update (daftar pembaruan aplikasi) ============ */
+const UPDATES = [
+  ["17 Nov 2026", "Notifikasi, refund, resi & log", [
+    "Lonceng notifikasi di pojok kanan atas: order baru, order mirip/duplikat, stok menipis, order siap ditagih pelunasan.",
+    "Peringatan order sama persis (pelanggan + produk): bisa pilih 'order berbeda' atau 'duplikat' (batalkan yang terbaru).",
+    "Rekap Order bisa difilter dengan rentang tanggal (Dari – Sampai) dan pilihan cepat.",
+    "Kalkulator HPP: tombol 'Masukkan ke Master Produk' dengan konfirmasi (admin).",
+    "Laba baru dihitung setelah order LUNAS dan berstatus Selesai; order lunas yang belum Selesai tampil sebagai dana tertahan.",
+    "Kolom No. resi / ekspedisi di invoice; muncul di halaman Cek Order pelanggan.",
+    "Fitur Refund (admin) untuk mengembalikan sebagian/seluruh uang pelanggan.",
+    "Kotak 'Cara pembayaran' di invoice yang belum lunas (isi di Pengaturan).",
+    "Log Aktivitas (admin): siapa melakukan apa. Pengingat backup database tiap 7 hari.",
+    "Tombol 'Terapkan modal dari Master Produk' untuk mengisi modal item order lama yang masih Rp 0.",
+    "Menu Update ini."]],
+  ["16 Nov 2026", "Kalkulator HPP, Cek Order, podium", [
+    "Kalkulator HPP (berat dalam gram, kurs, fee WH/packing, ongkir, tax, biaya lain) + hitung laba & margin.",
+    "Halaman Cek Order untuk pelanggan (tanpa login, tanpa harga): cari nama / no invoice, filter bulan.",
+    "Menu kasir bertambah: Inventory, Pelanggan, Kalkulator HPP (modal & laba tetap tersembunyi).",
+    "Podium Top 3 Spent di menu Pelanggan dengan 3 karakter maskot.",
+    "Nama akun kasir bisa diubah (invoice lama ikut berganti).",
+    "Perbaikan gambar invoice PNG yang bertumpuk, dan klik Simpan ganda."]],
+  ["Sebelumnya", "Inventory, Keuangan, dan lainnya", [
+    "Inventory (stok ready stock) dan order bertipe Jastip / Ready Stock; tarik order lama ke Inventory.",
+    "Keuangan (admin): modal, laba bersih, gaji 45/35/20, pengeluaran, grafik setahun, Rekap Order + unduh Excel.",
+    "Pilihan tanggal invoice & tanggal pembayaran untuk input order lama.",
+    "Master Produk tanpa duplikat (kode + deskripsi), pelanggan otomatis tersimpan, produk terlaris per kode + deskripsi.",
+    "Edit invoice, kolom Dibatalkan, modal per item."]],
+];
+async function vUpdate() {
+  $("#view").innerHTML = UPDATES.map(([d, t, l]) => `<div class="card" style="margin-bottom:14px"><div class="muted sm">${esc(d)}</div><h2 style="margin:2px 0 8px">${esc(t)}</h2><ul style="margin:0;padding-left:20px;line-height:1.7">${l.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>`).join("");
+}
 
 /* ============ theme ============ */
 const FONTS = {
@@ -466,10 +572,12 @@ async function start() {
   applyTheme();
   $("#login").classList.add("hidden"); $("#app").classList.remove("hidden");
   $("#userInfo").textContent = `${S.user.name} (${S.user.role})`;
-  const items = [["dashboard", "Dashboard"], ["order", "Order"], ["rekap", "Rekap Order"], ["produk", "Master Produk"], ["inventory", "Inventory"], ["pelanggan", "Pelanggan"], ["kalkulator", "Kalkulator HPP"], ...(isAdmin() ? [["keuangan", "Keuangan"], ["laporan", "Laporan"]] : []), ["pengaturan", "Pengaturan"]];
+  const items = [["dashboard", "Dashboard"], ["order", "Order"], ["rekap", "Rekap Order"], ["produk", "Master Produk"], ["inventory", "Inventory"], ["pelanggan", "Pelanggan"], ["kalkulator", "Kalkulator HPP"], ["update", "Update"], ...(isAdmin() ? [["keuangan", "Keuangan"], ["laporan", "Laporan"]] : []), ["pengaturan", "Pengaturan"]];
   $("#nav").innerHTML = items.map(([k, l]) => `<button data-v="${k}">${svg(k)}<span>${l}</span></button>`).join("");
   $$("#nav button").forEach(b => b.onclick = () => { go(b.dataset.v); $("#side").classList.remove("open"); });
   go(S.view || "order"); say("Halo " + S.user.name + "! ♡");
+  $("#bell").onclick = () => { const bp = $("#bpanel"); bp.hidden = !bp.hidden; if (!bp.hidden) { refreshNotif(); drawNotif(); } };
+  NF.data = null; $("#bell").innerHTML = svg("bell") + '<span class="bn"></span>'; refreshNotif();
   clearInterval(S.timer);
   S.timer = setInterval(() => { if (document.hidden || modalEl) return; if (S.view === "order") loadOrders(true); refreshSummary(); }, 30000);
   if (S.user.must_change) forcePassword();
@@ -497,12 +605,13 @@ async function refreshSummary() {
     const d = await api("GET", "/api/dashboard");
     S.pending = d.pending;
     $("#sumOrders").textContent = `${d.today.orders} Order`; $("#sumRev").textContent = fmt(d.today.revenue);
+    if (NF.data) refreshNotif();
   } catch (e) { }
 }
 
 /* ============ router ============ */
-const VIEWS = { dashboard: vDashboard, order: vOrder, rekap: vRekap, produk: vMaster, inventory: vInventory, pelanggan: vCustomers, kalkulator: vHpp, keuangan: vFinance, laporan: vReport, pengaturan: vSettings };
-const TITLES = { dashboard: "Dashboard", order: "Order", produk: "Master Produk", pelanggan: "Pelanggan", kalkulator: "Kalkulator HPP", keuangan: "Keuangan", laporan: "Laporan", pengaturan: "Pengaturan" };
+const VIEWS = { dashboard: vDashboard, order: vOrder, rekap: vRekap, produk: vMaster, inventory: vInventory, pelanggan: vCustomers, kalkulator: vHpp, update: vUpdate, keuangan: vFinance, laporan: vReport, pengaturan: vSettings };
+const TITLES = { dashboard: "Dashboard", order: "Order", produk: "Master Produk", pelanggan: "Pelanggan", kalkulator: "Kalkulator HPP", update: "Update", keuangan: "Keuangan", laporan: "Laporan", pengaturan: "Pengaturan" };
 function go(v) {
   S.view = v; $$("#nav button").forEach(b => b.classList.toggle("active", b.dataset.v === v));
   $("#pageTitle").textContent = TITLES[v]; $("#topActions").innerHTML = ""; $("#view").innerHTML = "";
@@ -872,7 +981,7 @@ function invBarcode(str) {
 function invoiceHTML(o, kind = "a4") {
   const st = o.settings || S.settings; const cur = st.currency || "Rp"; const f = n => `${cur} ${Math.round(n).toLocaleString("id-ID")}`;
   const brand = String(st.store_name || "Herstoodio").toLowerCase();
-  const KIND = { dp: "DP", pelunasan: "Pelunasan", cicilan: "Cicilan", bayar: "Dibayar" };
+  const KIND = { dp: "DP", pelunasan: "Pelunasan", cicilan: "Cicilan", bayar: "Dibayar", refund: "Refund" };
   const remaining = o.total - o.paid_amount;
   const dpAmt = Math.min(o.dp_target || 0, o.total);
   const hasDp = dpAmt > 0 && dpAmt < o.total;
@@ -886,9 +995,11 @@ function invoiceHTML(o, kind = "a4") {
     ${hasDp ? `<div class="trow subdp"><span>SUBTOTAL DP</span><span>${f(dpAmt)}</span></div>` : ""}
     ${pays}
     ${!open && !o.paid && o.status !== "batal" ? `<div class="trow sisa"><span>SISA TAGIHAN</span><span>${f(remaining)}</span></div>` : ""}`;
-  const options = open ? `<div class="payopts"><div class="po-title">✿ Pilih opsi nominal pembayaran ✿</div><div class="po-grid">
+  const optionsBase = open ? `<div class="payopts"><div class="po-title">✿ Pilih opsi nominal pembayaran ✿</div><div class="po-grid">
       ${hasDp ? `<div class="po po1"><small>OPSI 1 · BAYAR DP</small><b>${f(dpAmt)}</b><span>sisa ${f(o.total - dpAmt)} dilunasi nanti</span></div>` : ""}
       <div class="po po2"><small>${hasDp ? "OPSI 2 · " : ""}BAYAR LUNAS</small><b>${f(o.total)}</b><span>langsung beres, tanpa cicilan</span></div></div></div>` : "";
+  const payInfo = !o.paid && o.status !== "batal" && String(st.pay_info || "").trim() ? `<div class="payinfo"><b>✿ Cara pembayaran</b>${esc(st.pay_info).replace(/\n/g, "<br>")}</div>` : "";
+  const options = optionsBase + payInfo;
   const item = i => `${i.country ? `<b class="cc">${esc(cCode(i.country))}</b> ` : ""}${i.code ? `<b class="pc">${esc(i.code)}</b> ` : ""}${esc(i.name)}`;
   if (kind === "struk") {
     return `<div class="invoice struk"><div class="c"><img class="sl" src="/img/logo-h.jpg" alt=""><div class="brackets">[ ${esc(brand)} ]</div><div>${esc(st.tagline || "")}</div><div>${esc(st.store_address)}</div><div>${esc(st.store_phone)}</div></div>
@@ -949,13 +1060,22 @@ const openInvoice = guard(async (id) => {
         ${payMethod === "Tunai" ? `<div class="field" style="margin:0"><label>Uang diterima (opsional)</label><input class="input" type="number" id="iCash"></div>` : "<div></div>"}</div>
         <div class="field" style="margin:8px 0 0"><label>Tanggal diterima</label><input type="date" class="input" id="iPayDate" value="${payDate}" max="${todayStr()}" style="max-width:200px"></div>
         <div class="row" style="margin-top:10px">${canDp || o.paid_amount > 0 ? `<button class="btn" id="iPartial">${canDp ? "✓ Tandai DP diterima" : "✓ Catat cicilan"}</button>` : ""}<button class="btn ok" id="iLunas">✓ Tandai LUNAS${o.paid_amount > 0 || canDp ? ` (${fmt(remaining)})` : ""}</button></div></div>` : ""}
+      ${o.status !== "batal" ? `<div class="row" style="margin-bottom:12px;align-items:flex-end"><div class="field" style="margin:0;flex:1;min-width:220px"><label>No. resi / ekspedisi (tampil di halaman Cek Order pelanggan)</label><input class="input" id="iTrack" value="${esc(o.tracking || "")}" placeholder="mis. JNE 1234567890"></div><button class="btn sec sm" id="iTrackSave">Simpan resi</button></div>` : ""}
       <div class="row">
         <button class="btn" id="iPrint">Cetak Struk 80mm</button><button class="btn sec" id="iPrintA">Cetak Invoice A5/A4</button><button class="btn sec" id="iPng">Unduh PNG</button><button class="btn sec" id="iWa">Salin teks WhatsApp</button>
         ${o.status !== "batal" ? `<button class="btn sec" id="iEdit">✎ Edit invoice</button>` : ""}
         ${o.status !== "batal" && nextI >= 0 && nextI < 3 ? `<button class="btn ok" id="iNext">Pindah ke ${COLS[nextI + 1][1]}</button>` : ""}
         ${o.status !== "batal" && o.status !== "selesai" ? `<button class="btn sec" id="iCancel">Batalkan</button>` : ""}
+        ${isAdmin() && o.status !== "batal" && o.paid_amount - (o.refund || 0) > 0 ? `<button class="btn sec" id="iRefund">↩ Refund</button>` : ""}
         ${isAdmin() ? `<button class="btn danger sm" id="iDel">Hapus</button>` : ""}
       </div>`, "mid");
+    $("#iTrackSave", m)?.addEventListener("click", guard(async () => { o = await api("PUT", "/api/orders/" + o.id, { tracking: $("#iTrack", m).value }); toast("Resi tersimpan"); }));
+    $("#iRefund", m)?.addEventListener("click", guard(async () => {
+      const max = o.paid_amount - (o.refund || 0), a = parseInt(prompt(`Nominal refund (maks ${fmt(max)}):`, max), 10);
+      if (!a || a <= 0) return; const why = prompt("Alasan refund (opsional):", "") || "";
+      if (!confirm(`Catat refund ${fmt(a)} untuk ${o.number}? Uang keluar dari kas dan penjualan order ini berkurang ${fmt(a)}.`)) return;
+      o = await api("POST", "/api/orders/" + o.id + "/refund", { amount: a, note: why }); toast("Refund tercatat"); if (S.view === "order") loadOrders(); draw();
+    }));
     $("#iClose", m).onclick = closeModal;
     $$("[data-pm]", m).forEach(c => c.onclick = () => { payAmt = $("#iAmt", m)?.value ?? null; payDate = $("#iPayDate", m)?.value || payDate; payMethod = c.dataset.pm; draw(); });
     const upd = guard(async (b) => { o = await api("PUT", "/api/orders/" + id, b); payAmt = null; payDate = todayStr(); await refreshProducts(); if (S.view === "order") loadOrders(); refreshSummary(); draw(); });
@@ -1143,7 +1263,7 @@ async function vHpp() {
       <table><tr><td>Harga beli (Rp)</td><td class="num" id="rBuy"></td></tr><tr><td>Fee WH</td><td class="num" id="rWh"></td></tr><tr><td>Fee Packing</td><td class="num" id="rPack"></td></tr>
       <tr><td>Ongkir negara → ID</td><td class="num" id="rS1"></td></tr><tr><td>Ongkir WH → Indo</td><td class="num" id="rS2"></td></tr><tr><td>Tax</td><td class="num" id="rTax"></td></tr><tr><td>Biaya lain</td><td class="num" id="rOther"></td></tr></table>
       <div style="margin-top:12px;padding:12px;border:2px solid var(--text);border-radius:14px;background:var(--bg)"><span class="muted sm">TOTAL HPP</span><div style="font-size:26px;font-weight:700" id="rTotal"></div><div class="muted" id="rPer"></div></div>
-      <div class="row" style="margin-top:10px"><button class="btn sm" id="hCopy">Salin total HPP per pcs</button></div>
+      <div class="row" style="margin-top:10px"><button class="btn sm" id="hCopy">Salin total HPP per pcs</button>${isAdmin() ? '<button class="btn ok sm" id="hMaster">Masukkan ke Master Produk</button>' : ""}</div>
       <h3 style="margin:16px 0 6px">Cek untung (opsional)</h3>
       ${fld("hSell", "Harga jual per pcs (Rp)")}
       <div id="rProfit" class="muted"></div>
@@ -1164,6 +1284,28 @@ async function vHpp() {
   [["hRate1", "hShip1"], ["hRate2", "hShip2"]].forEach(([r, t]) => { $("#" + r).addEventListener("input", () => { $("#" + t).value = num("hKg") && num(r) ? Math.round(num("hKg") * num(r)) : ""; calc(); }); });
   $("#hKg").addEventListener("input", () => { [["hRate1", "hShip1"], ["hRate2", "hShip2"]].forEach(([r, t]) => { if (num(r)) $("#" + t).value = Math.round(num("hKg") * num(r)); }); calc(); });
   $("#hReset").onclick = () => { $$("#view input.input").forEach(el => { if (!["hKurs"].includes(el.id)) el.value = el.id === "hQty" ? 1 : ""; }); calc(); };
+  if (isAdmin()) $("#hMaster").onclick = () => {
+    const per = Math.round(calc());
+    if (per <= 0) return toast("Isi dulu harga beli dan biayanya", true);
+    const sell0 = num("hSell"), m = openModal(`<h3>Masukkan ke Master Produk ♡</h3>
+      <p class="muted" style="margin:0 0 8px">Modal per pcs akan diisi <b>${fmt(per)}</b> (hasil kalkulator HPP).</p>
+      <div class="field"><label>Deskripsi / nama produk</label><input class="input" id="mName" value="${esc($("#hName").value)}"></div>
+      <div class="two"><div class="field"><label>Negara asal</label><select class="input" id="mCountry">${countryOptions("")}</select></div><div class="field"><label>Kode produk</label><input class="input" id="mCode" placeholder="mis. BECOOD001"></div></div>
+      <div class="field"><label>Harga jual (opsional)</label><input class="input" type="number" id="mPrice" value="${sell0 || ""}"></div>
+      <div class="row" style="margin-top:12px"><button class="btn" id="mGo">Lanjut</button><button class="btn sec" id="mNo">Batal</button></div>`);
+    $("#mNo", m).onclick = closeModal;
+    $("#mGo", m).onclick = guard(async () => {
+      const name = $("#mName", m).value.trim(), code = $("#mCode", m).value.trim().toUpperCase(), country = $("#mCountry", m).value, price = +$("#mPrice", m).value || 0;
+      if (!name) return toast("Deskripsi produk wajib diisi", true);
+      const ex = S.products.find(p => p.name.trim().toLowerCase() === name.toLowerCase() && (p.code || "") === code);
+      const msg = ex ? `Produk "${ex.name}" (${ex.code || "tanpa kode"}) sudah ada di Master Produk.\n\nModalnya akan DIGANTI dari ${fmt(ex.cost)} menjadi ${fmt(per)}${price ? ` dan harga jual menjadi ${fmt(price)}` : ""}.\n\nAnda yakin akan memasukkan ke Master Produk?`
+        : `Produk BARU akan ditambahkan ke Master Produk:\n${code ? code + " · " : ""}${name}\nModal ${fmt(per)}${price ? ` · Harga jual ${fmt(price)}` : ""}\n\nAnda yakin akan memasukkan ke Master Produk?`;
+      if (!confirm(msg)) return;
+      if (ex) await api("PUT", "/api/products/" + ex.id, { ...ex, cost: per, price: price || ex.price, country: ex.country || country, code: ex.code || code });
+      else await api("POST", "/api/products", { name, code, country, price, cost: per, dp: 0, category: "Umum", stock: "", active: 1 });
+      closeModal(); await refreshProducts(); toast(ex ? "Modal produk diperbarui" : "Produk ditambahkan ke Master");
+    });
+  };
   $("#hCopy").onclick = () => copyText(String(Math.round(calc()))).then(() => toast("HPP per pcs tersalin"));
 }
 
@@ -1281,12 +1423,13 @@ function downloadXlsx(filename, sheets) {
 }
 
 /* ============ rekap order (tabel + Excel) ============ */
-let rk = { month: todayStr().slice(0, 7), type: "", status: "", q: "" };
+let rk = { from: todayStr().slice(0, 8) + "01", to: todayStr(), type: "", status: "", q: "" };
 const payLabel = r => r.status === "batal" ? "Batal" : r.paid ? "Lunas" : r.paid_amount > 0 ? "DP" : "Belum bayar";
 async function vRekap() {
-  const [y, mo] = rk.month.split("-").map(Number);
-  const rows = await api("GET", `/api/order-rows?from=${rk.month}-01&to=${todayStr(new Date(y, mo, 0))}`);
-  $("#topActions").innerHTML = `<input type="month" class="input" id="kMonth" value="${rk.month}" style="width:auto">
+  if (rk.from > rk.to) [rk.from, rk.to] = [rk.to, rk.from];
+  const rows = await api("GET", `/api/order-rows?from=${rk.from}&to=${rk.to}`);
+  $("#topActions").innerHTML = `<select class="input" id="kPre" style="width:auto"><option value="">Rentang cepat…</option><option value="7">7 hari terakhir</option><option value="30">30 hari terakhir</option><option value="bln">Bulan ini</option><option value="lalu">Bulan lalu</option><option value="90">3 bulan terakhir</option><option value="thn">Tahun ini</option></select>
+    <label class="muted sm" style="display:flex;align-items:center;gap:6px">Dari <input type="date" class="input" id="kFrom" value="${rk.from}" style="width:auto"></label><label class="muted sm" style="display:flex;align-items:center;gap:6px">Sampai <input type="date" class="input" id="kTo" value="${rk.to}" style="width:auto"></label>
     <select class="input" id="kType" style="width:auto"><option value="">Semua jenis</option><option>Jastip</option><option>Ready Stock</option></select>
     <select class="input" id="kStat" style="width:auto"><option value="">Semua pembayaran</option><option>Belum bayar</option><option>DP</option><option>Lunas</option><option>Batal</option></select>
     <div class="searchbox">${svg("search")}<input class="input" id="kQ" placeholder="Cari invoice / pelanggan / produk" value="${esc(rk.q)}"></div><button class="btn" id="kXls">Unduh Excel</button>`;
@@ -1298,20 +1441,28 @@ async function vRekap() {
     const l = view(), live = l.filter(r => r.status !== "batal");
     const sum = live.reduce((a, r) => a + r.qty * r.price, 0), qty = live.reduce((a, r) => a + r.qty, 0);
     let last = "";
-    $("#view").innerHTML = `<p class="muted" style="margin:0 0 10px">${l.length} baris produk · ${qty} pcs · total ${fmt(sum)} (order batal tidak dihitung)</p>` + (l.length ? `<div class="table-wrap"><table>
+    $("#view").innerHTML = `<p class="muted" style="margin:0 0 10px">${rk.from} s/d ${rk.to} · ${l.length} baris produk · ${qty} pcs · total ${fmt(sum)} (order batal tidak dihitung)${rows.length >= 5000 ? " · <b>menampilkan 5.000 baris terbaru, persempit rentangnya</b>" : ""}</p>` + (l.length ? `<div class="table-wrap"><table>
       <tr><th>Tanggal</th><th>Invoice</th><th>Pelanggan</th><th>Jenis</th><th>Negara</th><th>Kode</th><th>Deskripsi</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Subtotal</th>${adm ? '<th class="num">Modal</th>' : ""}<th>Pembayaran</th></tr>
       ${l.map(r => { const first = r.number !== last; last = r.number; return `<tr style="${first ? "" : "opacity:.92"}"><td>${first ? r.created_at.slice(0, 10) : ""}</td><td>${first ? `<b>${esc(r.number)}</b>` : ""}</td><td>${first ? esc(r.customer_name) : ""}</td><td>${first ? esc(r.type === "Ready Stock" ? "Ready Stock" : "Jastip") : ""}</td>
       <td>${r.country ? cBadge(r.country) : "-"}</td><td><b>${esc(r.code || "-")}</b></td><td>${esc(r.name)}</td><td class="num">${r.qty}</td><td class="num">${fmt(r.price)}</td><td class="num">${fmt(r.qty * r.price)}</td>${adm ? `<td class="num">${fmt(r.cost * r.qty)}</td>` : ""}<td>${first ? payLabel(r) : ""}</td></tr>`; }).join("")}</table></div>`
-      : emptyBox("Belum ada order di bulan ini dengan filter tersebut ✿"));
+      : emptyBox("Belum ada order di rentang ini dengan filter tersebut ✿"));
   };
-  $("#kMonth").onchange = e => { rk.month = e.target.value || rk.month; vRekap(); };
+  const dd = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return todayStr(d); };
+  $("#kFrom").onchange = e => { if (e.target.value) { rk.from = e.target.value; vRekap(); } };
+  $("#kTo").onchange = e => { if (e.target.value) { rk.to = e.target.value; vRekap(); } };
+  $("#kPre").onchange = e => { const v = e.target.value, n = new Date(), t = todayStr();
+    if (v === "7" || v === "30" || v === "90") { rk.from = dd(+v - 1 + (v === "90" ? 0 : 0)); rk.to = t; }
+    else if (v === "bln") { rk.from = t.slice(0, 8) + "01"; rk.to = t; }
+    else if (v === "lalu") { rk.from = todayStr(new Date(n.getFullYear(), n.getMonth() - 1, 1)); rk.to = todayStr(new Date(n.getFullYear(), n.getMonth(), 0)); }
+    else if (v === "thn") { rk.from = n.getFullYear() + "-01-01"; rk.to = t; } else return;
+    vRekap(); };
   $("#kType").onchange = e => { rk.type = e.target.value; draw(); }; $("#kStat").onchange = e => { rk.status = e.target.value; draw(); };
   $("#kQ").oninput = e => { rk.q = e.target.value; draw(); };
   $("#kXls").onclick = () => {
     const l = view(); let last = "";
     const head = ["Tanggal", "No. Invoice", "Pelanggan", "Jenis", "Negara", "Kode", "Deskripsi", "Qty", "Harga", "DP/item", "Subtotal", ...(adm ? ["Modal/item", "Laba"] : []), "Pembayaran", "Total invoice", "Dibayar"];
     const data = l.map(r => { const first = r.number !== last; last = r.number; return [r.created_at.slice(0, 10), r.number, r.customer_name, r.type === "Ready Stock" ? "Ready Stock" : "Jastip", r.country || "", r.code || "", r.name, r.qty, r.price, r.dp || 0, r.qty * r.price, ...(adm ? [r.cost, r.qty * (r.price - r.cost)] : []), payLabel(r), first ? r.total : "", first ? r.paid_amount : ""]; });
-    downloadXlsx(`rekap-order-${rk.month}.xlsx`, [{ name: "Rekap Order", rows: [head, ...data], widths: [12, 16, 20, 12, 10, 12, 34, 6, 12, 10, 14, ...(adm ? [12, 14] : []), 14, 14, 14] }]);
+    downloadXlsx(`rekap-order-${rk.from}_${rk.to}.xlsx`, [{ name: "Rekap Order", rows: [head, ...data], widths: [12, 16, 20, 12, 10, 12, 34, 6, 12, 10, 14, ...(adm ? [12, 14] : []), 14, 14, 14] }]);
   };
   draw();
 }
@@ -1350,9 +1501,9 @@ async function vFinance() {
   if (finTab === "ringkasan") {
     const tot = f.months.reduce((a, x) => ({ rev: a.rev + x.rev, net: a.net + x.net, ops: a.ops + x.ops, hpp: a.hpp + x.hpp }), { rev: 0, net: 0, ops: 0, hpp: 0 });
     const cmax = Math.max(1, ...f.by_country.map(x => x.revenue));
-    body = (f.warn.no_cost ? `<div class="card" style="border-color:var(--accent);margin-bottom:12px">⚠ Ada <b>${f.warn.no_cost}</b> item order yang modalnya belum diisi (Rp 0), jadi laba terlihat lebih besar dari sebenarnya. Isi kolom Modal saat input order jastip.</div>` : "")
+    body = (f.warn.no_cost ? `<div class="card" style="border-color:var(--accent);margin-bottom:12px">⚠ Ada <b>${f.warn.no_cost}</b> item order yang modalnya belum diisi (Rp 0), jadi laba terlihat lebih besar dari sebenarnya. Isi kolom Modal saat input order jastip, atau <button class="btn sm" id="fApply">Terapkan modal dari Master Produk</button></div>` : "")
       + `<div class="grid cards4">${stat("Total uang di tangan (estimasi)", P.total_kas, "modal tersedia + laba belum dibagi", "pk")}${stat("Modal tersedia (estimasi)", P.modal_tersedia, `Modal disetor ${fmt(P.setoran)}`)}
-      ${stat("Laba belum dibagi", P.kas_laba, `Gaji sudah dibayar ${fmt(P.gaji_dibayar)}`)}${stat("DP customer (tertahan)", P.dp_tertahan, `${P.open_orders} order belum lunas`)}
+      ${stat("Laba belum dibagi", P.kas_laba, `Gaji sudah dibayar ${fmt(P.gaji_dibayar)}`)}${stat("Dana customer (tertahan)", P.dp_tertahan, `${P.open_orders - P.held_orders} order belum lunas${P.held_orders ? ` · ${P.held_orders} lunas tapi belum Selesai` : ""}`)}
       ${stat("Modal tertanam", P.stok + P.hpp_open, `Stok ${fmt(P.stok)} · jastip berjalan ${fmt(P.hpp_open)}`)}${stat("Piutang (sisa tagihan)", P.piutang, "")}</div>
       <div class="card" style="margin-top:14px"><h2>Grafik ${f.year}</h2>${yearChart(f.months)}
         <p class="muted sm" style="margin:8px 0 0">Penjualan ${fmt(tot.rev)} · Modal barang ${fmt(tot.hpp)} · Operasional ${fmt(tot.ops)} · <b>Laba bersih ${fmt(tot.net)}</b></p></div>
@@ -1360,7 +1511,7 @@ async function vFinance() {
         <div class="card"><h2>Penjualan per negara ${f.year}</h2>${f.by_country.length ? f.by_country.map(x => `<div style="margin:8px 0"><div class="row" style="justify-content:space-between"><span>${x.country === "-" ? "Tanpa negara" : cBadge(x.country)}</span><b>${fmt(x.revenue)}</b></div><div style="height:8px;border-radius:6px;background:var(--primary-soft);margin-top:4px"><div style="height:8px;border-radius:6px;background:var(--primary);width:${Math.max(3, x.revenue / cmax * 100)}%"></div></div></div>`).join("") : '<p class="muted">Belum ada data.</p>'}</div>
         <div class="card"><h2>Produk terlaris ${f.year}</h2>${f.top.length ? `<table><tr><th>Produk</th><th class="num">Terjual</th><th class="num">Omset</th></tr>${f.top.map(x => `<tr><td><b>${esc(x.code || "")}</b> ${esc(x.name)}</td><td class="num">${x.qty}</td><td class="num">${fmt(x.revenue)}</td></tr>`).join("")}</table>` : '<p class="muted">Belum ada data.</p>'}</div></div>
       <details class="card" style="margin-top:14px"><summary><b>Cara hitung angka-angka ini</b></summary><div class="muted sm" style="margin-top:8px;line-height:1.6">
-        • <b>Laba</b> baru dihitung saat order <b>LUNAS</b> (bukan saat DP): penjualan lunas − modal barang − pengeluaran operasional.<br>
+        • <b>Laba</b> baru dihitung saat order <b>LUNAS dan berstatus Selesai</b> (barang sudah diterima customer; bukan saat DP): penjualan − refund − modal barang − pengeluaran operasional. Order lama (sebelum aturan ini) cukup lunas. Order lunas yang belum Selesai masuk "Dana customer (tertahan)".<br>
         • <b>Modal tersedia</b> = modal disetor + tambahan modal − modal tertanam di stok − modal jastip yang belum lunas + DP customer yang sudah masuk.<br>
         • <b>Laba belum dibagi</b> = laba bersih − tambahan modal − gaji yang sudah dibayar.<br>
         • Angka ini estimasi dari data yang kamu catat. Pembelian barang tidak dicatat sebagai pengeluaran, jadi pastikan modal tiap item terisi.</div></details>`;
@@ -1384,6 +1535,10 @@ async function vFinance() {
   }
   $("#view").innerHTML = bar + body;
   $$("[data-t]").forEach(b => b.onclick = () => { finTab = b.dataset.t; vFinance(); });
+  const fa = $("#fApply"); if (fa) fa.onclick = guard(async () => {
+    if (!confirm("Isi modal semua item order lama yang masih Rp 0 dengan modal dari Master Produk (cocok kode + deskripsi)? Hanya item dengan modal 0 yang diubah.")) return;
+    const r = await api("POST", "/api/finance/apply-master-cost", {}); toast(`${r.updated} item terisi. Sisa modal Rp 0: ${r.left} item`); vFinance();
+  });
   $$("[data-cd]").forEach(b => b.onclick = guard(async () => { if (confirm("Hapus setoran modal ini?")) { await api("DELETE", "/api/capital/" + b.dataset.cd); vFinance(); } }));
   $$("[data-pd]").forEach(b => b.onclick = guard(async () => { if (confirm("Hapus catatan pembayaran gaji ini?")) { await api("DELETE", "/api/payroll/" + b.dataset.pd); vFinance(); } }));
   $$("[data-ed]").forEach(b => b.onclick = guard(async () => { if (confirm("Hapus pengeluaran ini?")) { await api("DELETE", "/api/expenses/" + b.dataset.ed); vFinance(); } }));
@@ -1491,6 +1646,7 @@ async function vSettings() {
       <div class="three"><div class="field"><label>Awalan invoice</label><input class="input" data-k="invoice_prefix" value="${esc(s.invoice_prefix)}"></div>
       <div class="field"><label>Pajak (%)</label><input class="input" type="number" step="0.1" data-k="tax_percent" value="${s.tax_percent}"></div>
       <div class="field"><label>Mata uang</label><input class="input" data-k="currency" value="${esc(s.currency)}"></div></div>
+      <div class="field"><label>Cara pembayaran (tampil di invoice yang belum lunas)</label><textarea class="input" rows="3" data-k="pay_info" placeholder="mis.&#10;BCA 1234567890 a.n. Herstoodio&#10;DANA / OVO 0812xxxxxxx">${esc(s.pay_info || "")}</textarea></div>
       <div class="field"><label>Pesan di bawah invoice</label><input class="input" data-k="invoice_footer" value="${esc(s.invoice_footer)}"></div>
       <div class="field"><label>Negara asal barang (pisahkan koma)</label><input class="input" id="sCountries" value="${esc((s.countries || COUNTRY_DEFAULT).join(", "))}"></div>
       <div class="field"><label>Metode pembayaran (pisahkan koma)</label><input class="input" id="sMethods" value="${esc((s.payment_methods || []).join(", "))}"></div></div>
@@ -1508,7 +1664,7 @@ async function vSettings() {
       <p class="muted" style="margin:0 0 8px">Pelanggan bisa lihat status ordernya tanpa login (tanpa harga, nama disamarkan). Bagikan link ini:</p>
       <div class="row"><input class="input" id="trLink" readonly value="${location.origin}/track" style="max-width:420px"><button class="btn sm" id="trCopy">Salin link</button><a class="btn sec sm" href="/track" target="_blank" rel="noopener">Buka</a></div>
       <div class="field" style="margin:10px 0 0;max-width:260px"><label>Status halaman</label><select class="input" data-k="track_enabled"><option value="1" ${+s.track_enabled !== 0 ? "selected" : ""}>Aktif</option><option value="0" ${+s.track_enabled === 0 ? "selected" : ""}>Dimatikan</option></select></div></div>
-  <div class="row" style="margin:14px 0"><button class="btn" id="sSave">Simpan Pengaturan</button><button class="btn sec" id="sBackup">Unduh Backup Database</button></div>
+  <div class="row" style="margin:14px 0"><button class="btn" id="sSave">Simpan Pengaturan</button><button class="btn sec" id="sBackup">Unduh Backup Database</button><button class="btn sec" id="sLog">Log Aktivitas</button></div>
   <div class="card"><div class="row"><h2 style="margin:0">Akun Kasir</h2><span class="spacer"></span><button class="btn sm" id="uNew">+ Tambah akun</button></div>
     <table style="margin-top:10px"><tr><th>Username</th><th>Nama</th><th>Peran</th><th>Status</th><th></th></tr>
     ${users.map(u => `<tr><td>${esc(u.username)}</td><td>${esc(u.name)}</td><td>${u.role}</td><td><span class="badge ${u.active ? "paid" : "off"}">${u.active ? "Aktif" : "Nonaktif"}</span></td>
@@ -1525,6 +1681,12 @@ async function vSettings() {
       s.payment_methods = $("#sMethods").value.split(",").map(x => x.trim()).filter(Boolean);
       s.countries = $("#sCountries").value.split(",").map(x => x.trim()).filter(Boolean);
       S.settings = await api("PUT", "/api/settings", s); applyTheme(); toast("Pengaturan disimpan");
+    });
+    $("#sLog").onclick = guard(async () => {
+      const rows = await api("GET", "/api/activity");
+      openModal(`<div class="row"><h3 style="margin:0">Log Aktivitas</h3><span class="spacer"></span><button class="btn sec sm" id="lgX">Tutup</button></div><p class="muted sm">300 aktivitas terakhir: siapa melakukan apa.</p>
+        <div class="table-wrap"><table><tr><th>Waktu</th><th>Siapa</th><th>Aktivitas</th></tr>${rows.map(r => `<tr><td style="white-space:nowrap">${esc(r.at.slice(5, 16))}</td><td>${esc(r.user)}</td><td>${esc(r.action)}</td></tr>`).join("") || `<tr><td colspan="3" class="muted">Belum ada aktivitas tercatat.</td></tr>`}</table></div>`, "mid");
+      $("#lgX").onclick = closeModal;
     });
     $("#sBackup").onclick = guard(async () => {
       const r = await api("GET", "/api/backup", null, true); const blob = await r.blob();

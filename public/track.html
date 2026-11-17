@@ -73,7 +73,7 @@ async function load() {
     if (!d.rows.length) { out.innerHTML = '<div class="empty">Belum ada order yang cocok ♡</div>'; return; }
     out.innerHTML = d.rows.map(o => { const [lbl, n] = ST[o.status] || [o.status, 0];
       return `<div class="card"><div class="ch"><b class="no">${esc(o.number)}</b><span class="who">${esc(o.customer)}</span><span class="dt">${esc(o.date)}</span><span class="badge s-${esc(o.status)}">${esc(lbl)}</span></div>
-      ${n ? `<div class="steps">${[1, 2, 3, 4].map(i => `<i class="${i <= n ? "on" : ""}"></i>`).join("")}</div>` : ""}
+      ${o.tracking ? `<div style="padding:8px 14px 0;font-size:13px">📦 Resi / ekspedisi: <b>${esc(o.tracking)}</b></div>` : ""}${n ? `<div class="steps">${[1, 2, 3, 4].map(i => `<i class="${i <= n ? "on" : ""}"></i>`).join("")}</div>` : ""}
       <table><tr><th class="cd">Negara</th><th>Kode</th><th>Deskripsi</th><th class="n">Qty</th></tr>
       ${o.items.map(i => `<tr><td class="cd">${i.country ? `<span class="cc">${esc(cc(i.country))}</span>` : ""}</td><td><b>${esc(i.code || "-")}</b></td><td>${esc(i.name)}</td><td class="n">${i.qty}</td></tr>`).join("")}</table></div>`; }).join("");
   } catch { if (my === seq) out.innerHTML = '<div class="empty">Tidak bisa terhubung, coba lagi ya kak.</div>'; }

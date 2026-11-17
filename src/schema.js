@@ -13,6 +13,8 @@ export const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS inventory(id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL DEFAULT '', name TEXT NOT NULL, country TEXT NOT NULL DEFAULT '', qty INTEGER NOT NULL DEFAULT 0, cost INTEGER NOT NULL DEFAULT 0, price INTEGER NOT NULL DEFAULT 0, note TEXT DEFAULT '', active INTEGER NOT NULL DEFAULT 1)`,
   `CREATE TABLE IF NOT EXISTS inv_moves(id INTEGER PRIMARY KEY AUTOINCREMENT, inv_id INTEGER NOT NULL, delta INTEGER NOT NULL, reason TEXT DEFAULT '', ref TEXT DEFAULT '', created_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS capital(id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, party TEXT NOT NULL DEFAULT '', amount INTEGER NOT NULL, note TEXT DEFAULT '')`,
+  `CREATE TABLE IF NOT EXISTS activity(id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, user TEXT NOT NULL DEFAULT '', action TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '')`,
+  `CREATE TABLE IF NOT EXISTS dup_ok(key TEXT PRIMARY KEY, created_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS payroll(id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, person TEXT NOT NULL, amount INTEGER NOT NULL, note TEXT DEFAULT '')`,
   `CREATE INDEX IF NOT EXISTS idx_orders_created ON orders(created_at)`,
   `CREATE INDEX IF NOT EXISTS idx_items_order ON order_items(order_id)`,
@@ -43,4 +45,5 @@ export const DEFAULT_SETTINGS = {
   pay_people: [{ name: "Awaaa", pct: 45 }, { name: "Iyooow", pct: 35 }, { name: "Ipaaaw", pct: 20 }],
   capital_pct: 0,
   track_enabled: 1,
+  pay_info: "",
 };
