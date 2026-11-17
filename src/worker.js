@@ -163,7 +163,7 @@ async function hCustomerUpdate(c, id) {
 const hCustomerDelete = async (c, id) => { await run(c.env, "DELETE FROM customers WHERE id=?", id); return { ok: true }; };
 
 /* ---------- inventory (stok ready stock, direkap manual) ---------- */
-const invClean = (c, rows) => { if (c.user.role !== "admin") for (const r of rows) { delete r.cost; delete r.legacy_qty; } return rows; };
+const invClean = (c, rows) => rows;
 const LEGACY_BASE = "oi.inv_id IS NULL AND o.status!='batal'";
 // order lama yang cocok: kode sama (deskripsi boleh beda ejaan); kalau kode kosong, deskripsi harus sama persis
 const legacyMatch = code => code ? { w: `${LEGACY_BASE} AND oi.code=?`, a: [code] } : { w: `${LEGACY_BASE} AND oi.code='' AND lower(oi.name)=lower(?)`, a: [] };
@@ -332,7 +332,7 @@ async function hOrdersList(c) {
 async function hOrderGet(c, id) {
   const o = await loadOrder(c.env, id);
   const s = await getSettings(c.env);
-  o.incidents = (await all(c.env, "SELECT * FROM incidents WHERE order_id=? ORDER BY id DESC", id)).map(r => incView(r, c.user.role === "admin"));
+  o.incidents = (await all(c.env, "SELECT * FROM incidents WHERE order_id=? ORDER BY id DESC", id)).map(r => incView(r, true));
   o.settings = Object.fromEntries(Object.entries(s).filter(([k]) => k.startsWith("store_") || k.startsWith("invoice_") || k === "currency" || k === "pay_info"));
   return o;
 }
@@ -518,7 +518,6 @@ const hPayrollDelete = async (c, id) => { await run(c.env, "DELETE FROM payroll 
 async function hOrderRows(c) {
   const t = todayWib(), d1 = c.query.get("from") || t.slice(0, 8) + "01", d2 = c.query.get("to") || t;
   const rows = await all(c.env, "SELECT o.id,o.number,o.created_at,o.customer_name,o.type,o.status,o.paid,o.paid_amount,o.total,oi.name,oi.code,oi.country,oi.qty,oi.price,oi.dp,oi.cost FROM orders o JOIN order_items oi ON oi.order_id=o.id WHERE date(o.created_at) BETWEEN ? AND ? ORDER BY o.id DESC, oi.id LIMIT 5000", d1, d2);
-  if (c.user.role !== "admin") for (const r of rows) delete r.cost;
   return rows;
 }
 
@@ -676,7 +675,7 @@ async function hIncidentCreate(c, id) {
     if (!cost) noCost++;
     x.cost = cost; loss += cost * x.qty; names.push(`${x.name} ×${x.qty}`);
   }
-  if (c.user.role === "admin" && toInt(b.loss_manual) > 0) loss = toInt(b.loss_manual);
+  if (toInt(b.loss_manual) > 0) loss = toInt(b.loss_manual);
   const note = String(b.note || "").trim().slice(0, 200), t = nowIso(), d = todayWib();
   const ins = await run(c.env, "INSERT INTO incidents(order_id,kind,resend,wrong,ship,loss,note,status,created_at,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)", id, kind, JSON.stringify(resend), JSON.stringify(wrong), ship, loss, note, resend.length ? "open" : "done", t, c.user.name);
   const iid = ins.meta.last_row_id;
@@ -689,7 +688,7 @@ async function hIncidentCreate(c, id) {
     if (inv && inv.qty >= x.qty) { stmts.push(st(c.env, "UPDATE inventory SET qty=qty-? WHERE id=?", x.qty, inv.id), st(c.env, "INSERT INTO inv_moves(inv_id,delta,reason,ref,created_at) VALUES(?,?,?,?,?)", inv.id, -x.qty, `${INC_KINDS[kind].toLowerCase()} ${o.number}`, c.user.name, t)); adjusted.push(x.name); }
   }
   if (stmts.length) await c.env.DB.batch(stmts);
-  return { id: iid, loss: c.user.role === "admin" ? loss : undefined, no_cost: noCost, stock_adjusted: adjusted };
+  return { id: iid, loss, no_cost: noCost, stock_adjusted: adjusted };
 }
 async function hIncidentDone(c, id) { await run(c.env, "UPDATE incidents SET status='done', done_at=? WHERE id=?", nowIso(), id); return { ok: true }; }
 
@@ -737,19 +736,19 @@ async function logAct(env, user, method, path, body, preNo = "") {
 
 /* ---------- routing ---------- */
 const ROUTES = [
-  ["GET", /^\/api\/inventory\/legacy$/, hInvLegacy, "admin"], ["POST", /^\/api\/inventory\/(\d+)\/link-old$/, hInvLinkOld, "admin"],
+  ["GET", /^\/api\/inventory\/legacy$/, hInvLegacy, "user"], ["POST", /^\/api\/inventory\/(\d+)\/link-old$/, hInvLinkOld, "user"],
   ["GET", /^\/api\/finance$/, hFinance, "admin"], ["POST", /^\/api\/capital$/, hCapitalCreate, "admin"], ["DELETE", /^\/api\/capital\/(\d+)$/, hCapitalDelete, "admin"],
   ["POST", /^\/api\/payroll$/, hPayrollCreate, "admin"], ["DELETE", /^\/api\/payroll\/(\d+)$/, hPayrollDelete, "admin"], ["GET", /^\/api\/order-rows$/, hOrderRows, "user"],
-  ["GET", /^\/api\/inventory$/, hInvList, "user"], ["POST", /^\/api\/inventory$/, hInvCreate, "admin"], ["PUT", /^\/api\/inventory\/(\d+)$/, hInvUpdate, "admin"],
-  ["POST", /^\/api\/inventory\/(\d+)\/stock$/, hInvStock, "admin"], ["DELETE", /^\/api\/inventory\/(\d+)$/, hInvDelete, "admin"], ["GET", /^\/api\/inventory\/(\d+)\/moves$/, hInvMoves, "admin"],
-  ["POST", /^\/api\/login$/, hLogin, null], ["GET", /^\/api\/public-settings$/, hPublicSettings, null], ["GET", /^\/api\/track$/, hTrack, null], ["GET", /^\/api\/notifications$/, hNotif, "user"], ["POST", /^\/api\/orders\/(\d+)\/refund$/, hRefund, "admin"], ["POST", /^\/api\/orders\/(\d+)\/incident$/, hIncidentCreate, "user"], ["POST", /^\/api\/incidents\/(\d+)\/done$/, hIncidentDone, "user"], ["POST", /^\/api\/finance\/apply-master-cost$/, hApplyMasterCost, "admin"], ["GET", /^\/api\/activity$/, hActivity, "admin"], ["POST", /^\/api\/notifications\/dup-ok$/, hDupOk, "user"],
+  ["GET", /^\/api\/inventory$/, hInvList, "user"], ["POST", /^\/api\/inventory$/, hInvCreate, "user"], ["PUT", /^\/api\/inventory\/(\d+)$/, hInvUpdate, "user"],
+  ["POST", /^\/api\/inventory\/(\d+)\/stock$/, hInvStock, "user"], ["DELETE", /^\/api\/inventory\/(\d+)$/, hInvDelete, "user"], ["GET", /^\/api\/inventory\/(\d+)\/moves$/, hInvMoves, "user"],
+  ["POST", /^\/api\/login$/, hLogin, null], ["GET", /^\/api\/public-settings$/, hPublicSettings, null], ["GET", /^\/api\/track$/, hTrack, null], ["GET", /^\/api\/notifications$/, hNotif, "user"], ["POST", /^\/api\/orders\/(\d+)\/refund$/, hRefund, "user"], ["POST", /^\/api\/orders\/(\d+)\/incident$/, hIncidentCreate, "user"], ["POST", /^\/api\/incidents\/(\d+)\/done$/, hIncidentDone, "user"], ["POST", /^\/api\/finance\/apply-master-cost$/, hApplyMasterCost, "admin"], ["GET", /^\/api\/activity$/, hActivity, "admin"], ["POST", /^\/api\/notifications\/dup-ok$/, hDupOk, "user"],
   ["POST", /^\/api\/logout$/, hLogout, "user"], ["GET", /^\/api\/bootstrap$/, hBootstrap, "user"],
-  ["GET", /^\/api\/products$/, hProductsList, "user"], ["POST", /^\/api\/products$/, hProductCreate, "admin"],
-  ["PUT", /^\/api\/products\/(\d+)$/, hProductUpdate, "admin"], ["DELETE", /^\/api\/products\/(\d+)$/, hProductDelete, "admin"],
+  ["GET", /^\/api\/products$/, hProductsList, "user"], ["POST", /^\/api\/products$/, hProductCreate, "user"],
+  ["PUT", /^\/api\/products\/(\d+)$/, hProductUpdate, "user"], ["DELETE", /^\/api\/products\/(\d+)$/, hProductDelete, "user"],
   ["GET", /^\/api\/customers$/, hCustomersList, "user"], ["POST", /^\/api\/customers$/, hCustomerCreate, "user"],
-  ["PUT", /^\/api\/customers\/(\d+)$/, hCustomerUpdate, "user"], ["DELETE", /^\/api\/customers\/(\d+)$/, hCustomerDelete, "admin"],
+  ["PUT", /^\/api\/customers\/(\d+)$/, hCustomerUpdate, "user"], ["DELETE", /^\/api\/customers\/(\d+)$/, hCustomerDelete, "user"],
   ["GET", /^\/api\/orders$/, hOrdersList, "user"], ["POST", /^\/api\/orders$/, hOrderCreate, "user"],
-  ["GET", /^\/api\/orders\/(\d+)$/, hOrderGet, "user"], ["PUT", /^\/api\/orders\/(\d+)$/, hOrderUpdate, "user"], ["DELETE", /^\/api\/orders\/(\d+)$/, hOrderDelete, "admin"], ["POST", /^\/api\/products\/dedupe$/, hProductDedupe, "admin"], ["POST", /^\/api\/customers\/sync$/, hCustomersSync, "user"],
+  ["GET", /^\/api\/orders\/(\d+)$/, hOrderGet, "user"], ["PUT", /^\/api\/orders\/(\d+)$/, hOrderUpdate, "user"], ["DELETE", /^\/api\/orders\/(\d+)$/, hOrderDelete, "user"], ["POST", /^\/api\/products\/dedupe$/, hProductDedupe, "user"], ["POST", /^\/api\/customers\/sync$/, hCustomersSync, "user"],
   ["GET", /^\/api\/expenses$/, hExpensesList, "admin"], ["POST", /^\/api\/expenses$/, hExpenseCreate, "admin"], ["DELETE", /^\/api\/expenses\/(\d+)$/, hExpenseDelete, "admin"],
   ["GET", /^\/api\/dashboard$/, hDashboard, "user"], ["GET", /^\/api\/report$/, hReport, "admin"], ["GET", /^\/api\/export\.csv$/, hExportCsv, "admin"],
   ["PUT", /^\/api\/settings$/, hSettingsUpdate, "admin"], ["GET", /^\/api\/users$/, hUsersList, "admin"], ["POST", /^\/api\/users$/, hUserCreate, "admin"],

@@ -374,6 +374,7 @@ const S = { token: localStorage.getItem("kasir_token") || "", user: null, settin
 const fmt = n => `${S.settings.currency || "Rp"} ${Math.round(+n || 0).toLocaleString("id-ID")}`;
 const todayStr = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const isAdmin = () => S.user && S.user.role === "admin";
+const isStaff = () => !!S.user;   // semua akun login (admin & kasir): fitur operasional
 const mascotOn = () => +S.settings.mascot_on !== 0;
 const ICON = {
   bell: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
@@ -438,10 +439,10 @@ function incidentForm(o, after) {
     <div class="field"><label>Barang rugi (salah terkirim / rusak / hilang) — dihitung sebesar modalnya</label><div id="xWrong"></div>
       <div class="row" style="margin-top:6px"><button class="btn sec sm" id="xAddOrder">+ Dari item di order ini</button><button class="btn sec sm" id="xAddMaster">+ Produk lain (Master)</button></div>
       <datalist id="xDl">${S.products.map(p => `<option value="${esc((p.code ? p.code + " · " : "") + p.name)}"></option>`).join("")}</datalist></div>
-    <div class="two"><div class="field"><label>Ongkir kirim ulang (Rp)</label><input class="input" type="number" min="0" id="xShip"></div>${isAdmin() ? `<div class="field"><label>Nominal kerugian manual (opsional)</label><input class="input" type="number" min="0" id="xLoss" placeholder="kosongkan = otomatis dari modal"></div>` : "<div></div>"}</div>
+    <div class="two"><div class="field"><label>Ongkir kirim ulang (Rp)</label><input class="input" type="number" min="0" id="xShip"></div>${isStaff() ? `<div class="field"><label>Nominal kerugian manual (opsional)</label><input class="input" type="number" min="0" id="xLoss" placeholder="kosongkan = otomatis dari modal"></div>` : "<div></div>"}</div>
     <label class="row" style="gap:8px;margin:6px 0"><input type="checkbox" id="xStock" checked> Kurangi stok Inventory untuk barang rugi (jika ada di Inventory)</label>
     <div class="field"><label>Catatan</label><input class="input" id="xNote" placeholder="mis. customer sudah dikabari"></div>
-    <p class="muted sm" style="margin:6px 0">Ongkir dan kerugian otomatis masuk Pengeluaran (kategori "Kerugian & kirim ulang") dan mengurangi laba bersih.${isAdmin() ? "" : " Nominal kerugian dihitung sistem dari modal barang."}</p>
+    <p class="muted sm" style="margin:6px 0">Ongkir dan kerugian otomatis masuk Pengeluaran (kategori "Kerugian & kirim ulang") dan mengurangi laba bersih.${isStaff() ? "" : " Nominal kerugian dihitung sistem dari modal barang."}</p>
     <div class="row" style="margin-top:10px"><button class="btn" id="xSave">Simpan</button><button class="btn sec" id="xNo">Batal</button></div>`, "mid");
   const draw = () => {
     $("#xWrong", m).innerHTML = wrong.map((w, n) => `<div class="row" style="gap:6px;margin:4px 0">${w.source === "order"
@@ -460,7 +461,7 @@ function incidentForm(o, after) {
   $("#xSave", m).onclick = guard(async () => {
     const resend = $$("[data-rs]", m).filter(c => c.checked).map(c => { const i = o.items[+c.dataset.rs]; return { name: i.name, code: i.code || "", qty: +$(`[data-rq="${c.dataset.rs}"]`, m).value || 1 }; });
     const wr = wrong.filter(w => w.name);
-    const r = await api("POST", `/api/orders/${o.id}/incident`, { kind: $("#xKind", m).value, resend, wrong: wr, ship: +$("#xShip", m).value || 0, loss_manual: isAdmin() ? +$("#xLoss", m).value || 0 : 0, deduct_stock: $("#xStock", m).checked, note: $("#xNote", m).value });
+    const r = await api("POST", `/api/orders/${o.id}/incident`, { kind: $("#xKind", m).value, resend, wrong: wr, ship: +$("#xShip", m).value || 0, loss_manual: isStaff() ? +$("#xLoss", m).value || 0 : 0, deduct_stock: $("#xStock", m).checked, note: $("#xNote", m).value });
     closeModal(); toast("Kesalahan tercatat" + (r.stock_adjusted.length ? " · stok dikurangi" : "") + (r.no_cost ? " · ⚠ modal barang rugi belum terisi, kerugian belum terhitung penuh" : ""));
     refreshNotif(); if (after) await after();
   });
@@ -537,6 +538,7 @@ const UPDATES = [
     "Log Aktivitas (admin): siapa melakukan apa. Pengingat backup database tiap 7 hari.",
     "Tombol 'Terapkan modal dari Master Produk' untuk mengisi modal item order lama yang masih Rp 0.",
     "Menu Update ini.",
+    "Akun kasir sekarang bisa memakai semua fitur operasional (Master Produk, Inventory, refund, hapus invoice, Kalkulator HPP → Master Produk, kesalahan kirim). Hanya Keuangan, Laporan, dan Pengaturan akun/backup yang tetap khusus admin.",
     "Catat kesalahan kirim (salah kirim / kurang / rusak / hilang): kerugian dihitung dari modal barang, ongkir kirim ulang masuk Pengeluaran, dan pengingat 'Perlu kirim ulang' di lonceng."]],
   ["16 Nov 2026", "Kalkulator HPP, Cek Order, podium", [
     "Kalkulator HPP (berat dalam gram, kurs, fee WH/packing, ongkir, tax, biaya lain) + hitung laba & margin.",
@@ -922,7 +924,7 @@ function openPOS(edit) {
     $("#cCount", m).textContent = cart.length;
     $("#pLines", m).innerHTML = cart.length ? cart.map((l, i) => `<div class="cline" data-i="${i}">
       <div class="cl-top"><span>${l.country ? cBadge(l.country) + " " : ""}${l.code ? `<b>${esc(l.code)}</b> ` : ""}<span class="cl-name">${esc(l.name)}</span>${l.inv_id ? ` <small class="muted">· stok ${availFor(l.inv_id)}</small>` : ""}</span><button class="x" data-rm="${i}" title="Hapus">×</button></div>
-      <div class="cl-grid"${isAdmin() && !l.inv_id ? ' style="grid-template-columns:1.3fr 1fr .7fr 1fr"' : ""}><label>Harga<input type="number" min="0" data-f="price" value="${l.price}"></label><label>DP / item<input type="number" min="0" data-f="dp" value="${l.dp || ""}" placeholder="0"></label><label>Qty<input type="number" min="1" data-f="qty" value="${l.qty}"></label>${isAdmin() && !l.inv_id ? `<label>Modal / item<input type="number" min="0" data-f="cost" value="${l.cost || ""}" placeholder="0"></label>` : ""}</div>
+      <div class="cl-grid"${isStaff() && !l.inv_id ? ' style="grid-template-columns:1.3fr 1fr .7fr 1fr"' : ""}><label>Harga<input type="number" min="0" data-f="price" value="${l.price}"></label><label>DP / item<input type="number" min="0" data-f="dp" value="${l.dp || ""}" placeholder="0"></label><label>Qty<input type="number" min="1" data-f="qty" value="${l.qty}"></label>${isStaff() && !l.inv_id ? `<label>Modal / item<input type="number" min="0" data-f="cost" value="${l.cost || ""}" placeholder="0"></label>` : ""}</div>
       <div class="muted sm" data-sum>${fmt(l.price * l.qty)}${l.dp ? ` · DP ${fmt(l.dp * l.qty)}` : ""}</div></div>`).join("")
       : emptyBox("Keranjang masih kosong");
     $$("[data-rm]", m).forEach(b => b.onclick = () => { cart.splice(+b.dataset.rm, 1); renderLines(); renderTotals(); });
@@ -1008,7 +1010,7 @@ function openPOS(edit) {
     // modal yang masih kosong di invoice lama diisi dari master (kode + deskripsi sama persis)
     let filled = 0;
     cart.forEach(l => { if (!l.inv_id && !l.cost) { const pm = S.products.find(x => x.name.toLowerCase() === l.name.toLowerCase() && (x.code || "") === (l.code || "")); if (pm && pm.cost) { l.cost = pm.cost; filled++; } } });
-    if (filled && isAdmin()) toast(`${filled} produk: modal diisi otomatis dari master. Cek lalu simpan perubahan.`); $("#pDisc", m).value = edit.discount || ""; $("#pNote", m).value = edit.note || "";
+    if (filled && isStaff()) toast(`${filled} produk: modal diisi otomatis dari master. Cek lalu simpan perubahan.`); $("#pDisc", m).value = edit.discount || ""; $("#pNote", m).value = edit.note || "";
   }
   renderMaster(); renderLines(); renderTotals(); $("#aCode", m).focus();
 }
@@ -1101,7 +1103,7 @@ const openInvoice = guard(async (id) => {
         ${payMethod === "Tunai" ? `<div class="field" style="margin:0"><label>Uang diterima (opsional)</label><input class="input" type="number" id="iCash"></div>` : "<div></div>"}</div>
         <div class="field" style="margin:8px 0 0"><label>Tanggal diterima</label><input type="date" class="input" id="iPayDate" value="${payDate}" max="${todayStr()}" style="max-width:200px"></div>
         <div class="row" style="margin-top:10px">${canDp || o.paid_amount > 0 ? `<button class="btn" id="iPartial">${canDp ? "✓ Tandai DP diterima" : "✓ Catat cicilan"}</button>` : ""}<button class="btn ok" id="iLunas">✓ Tandai LUNAS${o.paid_amount > 0 || canDp ? ` (${fmt(remaining)})` : ""}</button></div></div>` : ""}
-      ${(o.incidents || []).length ? `<div class="card" style="margin-bottom:12px;border-color:var(--accent)"><b>⚠ Kesalahan / kirim ulang</b>${o.incidents.map(i => `<div class="row" style="margin-top:8px;align-items:flex-start"><div style="flex:1;min-width:200px"><b>${esc(i.kind_label)}</b> <span class="muted sm">${esc(i.created_at.slice(0, 16))} · ${esc(i.created_by)}</span>${i.resend.length ? `<div class="sm">Kirim ulang: ${esc(i.resend.map(x => x.name + " ×" + x.qty).join(", "))}</div>` : ""}${i.wrong.length ? `<div class="sm">Barang rugi: ${esc(i.wrong.map(x => x.name + " ×" + x.qty).join(", "))}</div>` : ""}<div class="sm muted">${i.ship ? "Ongkir kirim ulang " + fmt(i.ship) : ""}${isAdmin() && i.loss ? (i.ship ? " · " : "") + "Kerugian modal " + fmt(i.loss) : ""}${i.note ? " · " + esc(i.note) : ""}</div></div>${i.status === "open" ? `<button class="btn ok sm" data-idone="${i.id}">✓ Sudah dikirim ulang</button>` : `<span class="badge">Selesai</span>`}</div>`).join("")}</div>` : ""}
+      ${(o.incidents || []).length ? `<div class="card" style="margin-bottom:12px;border-color:var(--accent)"><b>⚠ Kesalahan / kirim ulang</b>${o.incidents.map(i => `<div class="row" style="margin-top:8px;align-items:flex-start"><div style="flex:1;min-width:200px"><b>${esc(i.kind_label)}</b> <span class="muted sm">${esc(i.created_at.slice(0, 16))} · ${esc(i.created_by)}</span>${i.resend.length ? `<div class="sm">Kirim ulang: ${esc(i.resend.map(x => x.name + " ×" + x.qty).join(", "))}</div>` : ""}${i.wrong.length ? `<div class="sm">Barang rugi: ${esc(i.wrong.map(x => x.name + " ×" + x.qty).join(", "))}</div>` : ""}<div class="sm muted">${i.ship ? "Ongkir kirim ulang " + fmt(i.ship) : ""}${isStaff() && i.loss ? (i.ship ? " · " : "") + "Kerugian modal " + fmt(i.loss) : ""}${i.note ? " · " + esc(i.note) : ""}</div></div>${i.status === "open" ? `<button class="btn ok sm" data-idone="${i.id}">✓ Sudah dikirim ulang</button>` : `<span class="badge">Selesai</span>`}</div>`).join("")}</div>` : ""}
       ${o.status !== "batal" ? `<div class="row" style="margin-bottom:12px;align-items:flex-end"><div class="field" style="margin:0;flex:1;min-width:220px"><label>No. resi / ekspedisi (tampil di halaman Cek Order pelanggan)</label><input class="input" id="iTrack" value="${esc(o.tracking || "")}" placeholder="mis. JNE 1234567890"></div><button class="btn sec sm" id="iTrackSave">Simpan resi</button></div>` : ""}
       <div class="row">
         <button class="btn" id="iPrint">Cetak Struk 80mm</button><button class="btn sec" id="iPrintA">Cetak Invoice A5/A4</button><button class="btn sec" id="iPng">Unduh PNG</button><button class="btn sec" id="iWa">Salin teks WhatsApp</button>
@@ -1109,8 +1111,8 @@ const openInvoice = guard(async (id) => {
         ${o.status !== "batal" && nextI >= 0 && nextI < 3 ? `<button class="btn ok" id="iNext">Pindah ke ${COLS[nextI + 1][1]}</button>` : ""}
         ${o.status !== "batal" && o.status !== "selesai" ? `<button class="btn sec" id="iCancel">Batalkan</button>` : ""}
         ${o.status !== "batal" ? `<button class="btn sec" id="iIncident">⚠ Catat kesalahan kirim</button>` : ""}
-        ${isAdmin() && o.status !== "batal" && o.paid_amount - (o.refund || 0) > 0 ? `<button class="btn sec" id="iRefund">↩ Refund</button>` : ""}
-        ${isAdmin() ? `<button class="btn danger sm" id="iDel">Hapus</button>` : ""}
+        ${isStaff() && o.status !== "batal" && o.paid_amount - (o.refund || 0) > 0 ? `<button class="btn sec" id="iRefund">↩ Refund</button>` : ""}
+        ${isStaff() ? `<button class="btn danger sm" id="iDel">Hapus</button>` : ""}
       </div>`, "mid");
     $("#iIncident", m)?.addEventListener("click", () => incidentForm(o, async () => { o = await api("GET", "/api/orders/" + o.id); draw(); }));
     $$("[data-idone]", m).forEach(b => b.onclick = guard(async () => { await api("POST", "/api/incidents/" + b.dataset.idone + "/done", {}); o = await api("GET", "/api/orders/" + o.id); toast("Ditandai sudah dikirim ulang"); refreshNotif(); draw(); }));
@@ -1170,7 +1172,7 @@ async function vMaster() {
     $("#view").innerHTML = l.length ? `<p class="muted" style="margin:0 0 10px">Produk yang kamu ketik saat order otomatis masuk ke sini, jadi tinggal pilih di order berikutnya ♡</p>
     <div class="table-wrap"><table><tr><th>Negara</th><th>Kode</th><th>Produk</th><th class="num">Harga</th><th class="num">DP</th><th class="num">Modal</th><th class="num">Untung/item</th><th></th></tr>
     ${l.map(p => `<tr><td>${p.country ? cBadge(p.country) : "-"}</td><td>${esc(p.code || "-")}</td><td><b>${esc(p.name)}</b></td><td class="num">${fmt(p.price)}</td><td class="num">${p.dp ? fmt(p.dp) : "-"}</td><td class="num">${p.cost ? fmt(p.cost) : "-"}</td><td class="num">${p.cost ? fmt(p.price - p.cost) : "-"}</td>
-    <td class="num">${isAdmin() ? `<button class="btn sec sm" data-e="${p.id}">Edit</button> <button class="btn danger sm" data-d="${p.id}">Hapus</button>` : ""}</td></tr>`).join("")}</table></div>`
+    <td class="num">${isStaff() ? `<button class="btn sec sm" data-e="${p.id}">Edit</button> <button class="btn danger sm" data-d="${p.id}">Hapus</button>` : ""}</td></tr>`).join("")}</table></div>`
       : emptyBox("Master produk masih kosong. Buat order pertama dan ketik produknya, nanti otomatis tersimpan di sini ✿");
     $$("[data-e]").forEach(b => b.onclick = () => productForm(list.find(p => p.id === +b.dataset.e)));
         $$("[data-d]").forEach(b => b.onclick = guard(async () => { if (confirm("Hapus produk dari master? Invoice lama tetap aman.")) { await api("DELETE", "/api/products/" + b.dataset.d); await refreshProducts(); vMaster(); } }));
@@ -1196,7 +1198,7 @@ function productForm(p = {}) {
 
 /* ============ inventory (stok ready stock) ============ */
 async function vInventory() {
-  const adm = isAdmin(), list = await api("GET", "/api/inventory");
+  const adm = isStaff(), list = await api("GET", "/api/inventory");
   $("#topActions").innerHTML = `<div class="searchbox">${svg("search")}<input class="input" id="vQ" placeholder="Cari kode / deskripsi"></div><select class="input" id="vC" style="width:auto"><option value="">Semua negara</option>${countries().map(c => `<option>${esc(c)}</option>`).join("")}</select>${adm ? '<button class="btn" id="vNew">+ Tambah Item</button>' : ""}`;
   if (adm) $("#vNew").onclick = () => invForm();
   const draw = () => {
@@ -1308,7 +1310,7 @@ async function vHpp() {
       <table><tr><td>Harga beli (Rp)</td><td class="num" id="rBuy"></td></tr><tr><td>Fee WH</td><td class="num" id="rWh"></td></tr><tr><td>Fee Packing</td><td class="num" id="rPack"></td></tr>
       <tr><td>Ongkir negara → ID</td><td class="num" id="rS1"></td></tr><tr><td>Ongkir WH → Indo</td><td class="num" id="rS2"></td></tr><tr><td>Tax</td><td class="num" id="rTax"></td></tr><tr><td>Biaya lain</td><td class="num" id="rOther"></td></tr></table>
       <div style="margin-top:12px;padding:12px;border:2px solid var(--text);border-radius:14px;background:var(--bg)"><span class="muted sm">TOTAL HPP</span><div style="font-size:26px;font-weight:700" id="rTotal"></div><div class="muted" id="rPer"></div></div>
-      <div class="row" style="margin-top:10px"><button class="btn sm" id="hCopy">Salin total HPP per pcs</button>${isAdmin() ? '<button class="btn ok sm" id="hMaster">Masukkan ke Master Produk</button>' : ""}</div>
+      <div class="row" style="margin-top:10px"><button class="btn sm" id="hCopy">Salin total HPP per pcs</button>${isStaff() ? '<button class="btn ok sm" id="hMaster">Masukkan ke Master Produk</button>' : ""}</div>
       <h3 style="margin:16px 0 6px">Cek untung (opsional)</h3>
       ${fld("hSell", "Harga jual per pcs (Rp)")}
       <div id="rProfit" class="muted"></div>
@@ -1329,7 +1331,7 @@ async function vHpp() {
   [["hRate1", "hShip1"], ["hRate2", "hShip2"]].forEach(([r, t]) => { $("#" + r).addEventListener("input", () => { $("#" + t).value = num("hKg") && num(r) ? Math.round(num("hKg") * num(r)) : ""; calc(); }); });
   $("#hKg").addEventListener("input", () => { [["hRate1", "hShip1"], ["hRate2", "hShip2"]].forEach(([r, t]) => { if (num(r)) $("#" + t).value = Math.round(num("hKg") * num(r)); }); calc(); });
   $("#hReset").onclick = () => { $$("#view input.input").forEach(el => { if (!["hKurs"].includes(el.id)) el.value = el.id === "hQty" ? 1 : ""; }); calc(); };
-  if (isAdmin()) $("#hMaster").onclick = () => {
+  if (isStaff()) $("#hMaster").onclick = () => {
     const per = Math.round(calc());
     if (per <= 0) return toast("Isi dulu harga beli dan biayanya", true);
     const sell0 = num("hSell"), m = openModal(`<h3>Masukkan ke Master Produk ♡</h3>
@@ -1406,7 +1408,7 @@ async function vCustomers() {
   $("#cNew").onclick = () => customerForm();
   $("#view").innerHTML = podium(list) + `<div class="table-wrap"><table><tr><th>Nama</th><th>Telepon / WA</th><th>Alamat</th><th class="num">Order</th><th class="num">Total belanja</th><th></th></tr>
   ${list.map(c => `<tr><td><b>${esc(c.name)}</b></td><td>${esc(c.phone)}</td><td>${esc(c.address)}</td><td class="num">${c.orders}</td><td class="num">${fmt(c.spent)}</td>
-  <td class="num"><button class="btn sec sm" data-e="${c.id}">Edit</button> ${isAdmin() && c.name !== "Umum" ? `<button class="btn danger sm" data-d="${c.id}">Hapus</button>` : ""}</td></tr>`).join("")}</table></div>`;
+  <td class="num"><button class="btn sec sm" data-e="${c.id}">Edit</button> ${isStaff() && c.name !== "Umum" ? `<button class="btn danger sm" data-d="${c.id}">Hapus</button>` : ""}</td></tr>`).join("")}</table></div>`;
   $$("[data-e]").forEach(b => b.onclick = () => customerForm(list.find(c => c.id === +b.dataset.e)));
   $$("[data-d]").forEach(b => b.onclick = guard(async () => { if (confirm("Hapus pelanggan ini? Riwayat invoice tetap tersimpan.")) { await api("DELETE", "/api/customers/" + b.dataset.d); await refreshProducts(); vCustomers(); } }));
 }
@@ -1481,7 +1483,7 @@ async function vRekap() {
   $("#kType").value = rk.type; $("#kStat").value = rk.status;
   const view = () => rows.filter(r => (!rk.type || (rk.type === "Ready Stock" ? r.type === "Ready Stock" : r.type !== "Ready Stock")) && (!rk.status || payLabel(r) === rk.status)
     && (!rk.q || [r.number, r.customer_name, r.name, r.code].join(" ").toLowerCase().includes(rk.q.toLowerCase())));
-  const adm = isAdmin();
+  const adm = isStaff();
   const draw = () => {
     const l = view(), live = l.filter(r => r.status !== "batal");
     const sum = live.reduce((a, r) => a + r.qty * r.price, 0), qty = live.reduce((a, r) => a + r.qty, 0);
